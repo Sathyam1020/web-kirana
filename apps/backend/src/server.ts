@@ -1,6 +1,7 @@
 import { createServer } from "node:http"
 import { buildApp } from "./app.js"
 import { env } from "./config/env.js"
+import { disconnect as disconnectDb } from "./db/prisma.js"
 import { logger } from "./lib/logger.js"
 
 const app = buildApp()
@@ -37,7 +38,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     for (const socket of sockets) socket.end()
   })
 
-  // Phase 1 adds: await prisma.$disconnect()
+  await disconnectDb().catch((err) => logger.warn({ err }, "prisma disconnect failed"))
+
   // Phase 9 adds: await io.close()
 
   logger.info("graceful shutdown complete")

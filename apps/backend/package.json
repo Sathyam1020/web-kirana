@@ -10,10 +10,19 @@
     "start": "node dist/server.js",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force",
+    "db:smoke": "tsx scripts/postgis-smoke.ts"
   },
   "dependencies": {
+    "@prisma/adapter-neon": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "@workspace/shared": "*",
+    "argon2": "^0.41.1",
     "dotenv": "^16.4.7",
     "express": "^5.0.1",
     "pino": "^9.5.0",
@@ -27,6 +36,7 @@
     "@workspace/typescript-config": "*",
     "eslint": "^9.39.2",
     "pino-pretty": "^11.3.0",
+    "prisma": "^7.8.0",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }
