@@ -3,6 +3,7 @@ import { Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { NotFoundError, ValidationError } from "../../lib/errors.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
+import { searchProducts } from "../search/search.service.js"
 import type {
   CreateProductBody,
   ListProductsQuery,
@@ -21,6 +22,7 @@ export interface ProductView {
   imageUrl: string | null
   isActive: boolean
   isAvailable: boolean
+  searchAliases: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -36,6 +38,7 @@ const SELECT = {
   imageUrl: true,
   isActive: true,
   isAvailable: true,
+  searchAliases: true,
   createdAt: true,
   updatedAt: true,
   category: { select: { name: true } },
@@ -52,6 +55,7 @@ function toView(row: {
   imageUrl: string | null
   isActive: boolean
   isAvailable: boolean
+  searchAliases: string[]
   createdAt: Date
   updatedAt: Date
   category: { name: string }
@@ -87,6 +91,7 @@ export async function createProduct(
         unit: input.unit,
         imageUrl: input.imageUrl,
         isAvailable: input.isAvailable ?? true,
+        searchAliases: input.searchAliases ?? [],
       },
       select: SELECT,
     })
@@ -106,6 +111,8 @@ export interface ListProductsResult {
   items: ProductView[]
   nextCursor: string | null
   hasMore: boolean
+  /** Present only when `q` was used and results came from the search service. */
+  searchPage?: number
 }
 
 export async function listProducts(
@@ -113,6 +120,53 @@ export async function listProducts(
   query: ListProductsQuery,
 ): Promise<ListProductsResult> {
   if (query.category !== undefined) await assertCategoryExists(query.category)
+
+  // When the owner sends `q`, delegate to the search service so ranking is
+  // consistent with the public endpoint. Filters (category / availability /
+  // includeInactive) still apply because the search service honors them.
+  if (query.q !== undefined && query.q.length > 0) {
+    const result = await searchProducts({
+      q: query.q,
+      page: 1, // owner self-search isn't paginated through this path yet —
+               // cursor pagination doesn't compose with scored search.
+      limit: query.limit,
+      categoryId: query.category,
+      ownerScope: { storeId },
+    })
+
+    // Owner view filters are applied client-side on the score-sorted list
+    // (cheaper than re-querying). For server-side consistency, hide
+    // inactive when includeInactive is false, and respect `available`.
+    const visible = result.items.filter((h) => {
+      if (!query.includeInactive && !h.isActive) return false
+      if (query.available !== undefined && h.isAvailable !== query.available) return false
+      return true
+    })
+
+    return {
+      items: visible.map((h) => ({
+        id: h.id,
+        storeId: h.storeId,
+        categoryId: h.categoryId,
+        categoryName: h.categoryName,
+        name: h.name,
+        description: h.description,
+        pricePaise: h.pricePaise,
+        unit: h.unit,
+        imageUrl: h.imageUrl,
+        isActive: h.isActive,
+        isAvailable: h.isAvailable,
+        // searchAliases not in SearchHit; fetch separately if needed.
+        // The owner UI doesn't show aliases in the search-result row, so omit.
+        searchAliases: [],
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      })),
+      nextCursor: null,
+      hasMore: result.hasMore,
+      searchPage: result.page,
+    }
+  }
 
   const where: Record<string, unknown> = { storeId }
   if (!query.includeInactive) where.isActive = true
@@ -171,6 +225,7 @@ export async function updateProduct(
   if (input.unit !== undefined) data.unit = input.unit
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
   if (input.isAvailable !== undefined) data.isAvailable = input.isAvailable
+  if (input.searchAliases !== undefined) data.searchAliases = input.searchAliases
 
   if (Object.keys(data).length === 0) {
     return getProduct(storeId, productId)

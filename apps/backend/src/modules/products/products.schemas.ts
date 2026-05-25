@@ -20,6 +20,16 @@ const optionalBoolFromQuery = z
   .optional()
   .transform((v) => (v === undefined ? undefined : v === "true"))
 
+// Phase 4.2 — owner-curated synonyms (English, Romanized Hindi, native script).
+// Bounded so a malicious owner can't blow up the search vector.
+const searchAliasesSchema = z
+  .array(z.string().trim().min(1).max(100))
+  .max(20)
+  .default([])
+  .transform((arr) =>
+    Array.from(new Set(arr.map((a) => a.toLowerCase()))), // dedupe, lowercase
+  )
+
 export const createProductBodySchema = z.strictObject({
   categoryId: z.string().min(1).max(40),
   name: z.string().trim().min(1).max(200),
@@ -30,6 +40,7 @@ export const createProductBodySchema = z.strictObject({
   unit: z.nativeEnum(Unit),
   imageUrl: imageUrlSchema.optional(),
   isAvailable: z.boolean().optional().default(true),
+  searchAliases: searchAliasesSchema.optional(),
 })
 export type CreateProductBody = z.infer<typeof createProductBodySchema>
 
@@ -42,6 +53,7 @@ export const updateProductBodySchema = z
     unit: z.nativeEnum(Unit).optional(),
     imageUrl: imageUrlSchema.nullable().optional(),
     isAvailable: z.boolean().optional(),
+    searchAliases: searchAliasesSchema.optional(),
   })
   .strict()
 export type UpdateProductBody = z.infer<typeof updateProductBodySchema>
@@ -59,5 +71,9 @@ export const listProductsQuerySchema = z.strictObject({
   includeInactive: boolFromQuery
     .optional()
     .transform((v) => v ?? false),
+  // Owner-side search: when present, switches the list to scored search
+  // results filtered to the owner's store. Defers to the central search
+  // service for ranking consistency with the public endpoint.
+  q: z.string().trim().min(1).max(100).optional(),
 })
 export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>

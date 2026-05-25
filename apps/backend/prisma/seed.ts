@@ -122,25 +122,53 @@ async function main(): Promise<void> {
 
   // Products per store. Using deterministic SKU-like keys for idempotent upserts:
   // (storeId, name) is not unique in the schema, so we identify by id-via-find.
-  const productSpec = [
-    { store: storeA, name: "Aashirvaad Atta 5kg", category: "Atta, Rice & Dal", pricePaise: 32500, unit: Unit.KG },
-    { store: storeA, name: "Sona Masuri Rice 1kg", category: "Atta, Rice & Dal", pricePaise: 8500, unit: Unit.KG },
-    { store: storeA, name: "Amul Gold Milk 1L", category: "Dairy & Eggs", pricePaise: 7200, unit: Unit.L },
-    { store: storeA, name: "Lays Classic Salted 50g", category: "Snacks & Beverages", pricePaise: 2000, unit: Unit.G },
-    { store: storeA, name: "Bingo Mad Angles 100g", category: "Snacks & Beverages", pricePaise: 3000, unit: Unit.G },
-    { store: storeA, name: "Colgate Strong Teeth 200g", category: "Personal Care", pricePaise: 11500, unit: Unit.G },
-    { store: storeB, name: "Toor Dal 1kg", category: "Atta, Rice & Dal", pricePaise: 14500, unit: Unit.KG },
-    { store: storeB, name: "Nandini Curd 500g", category: "Dairy & Eggs", pricePaise: 4500, unit: Unit.G },
-    { store: storeB, name: "Coca Cola 750ml", category: "Snacks & Beverages", pricePaise: 4000, unit: Unit.ML },
-    { store: storeB, name: "Parle-G Original 250g", category: "Snacks & Beverages", pricePaise: 2500, unit: Unit.G },
-    { store: storeB, name: "Dove Soap 100g", category: "Personal Care", pricePaise: 7500, unit: Unit.G },
-    { store: storeB, name: "Surf Excel 1kg", category: "Personal Care", pricePaise: 25000, unit: Unit.KG },
+  const productSpec: Array<{
+    store: typeof storeA
+    name: string
+    category: string
+    pricePaise: number
+    unit: Unit
+    aliases?: string[]
+  }> = [
+    { store: storeA, name: "Aashirvaad Atta 5kg", category: "Atta, Rice & Dal", pricePaise: 32500, unit: Unit.KG,
+      aliases: ["atta", "wheat flour", "gehu ka atta", "गेहूँ का आटा"] },
+    { store: storeA, name: "Sona Masuri Rice 1kg", category: "Atta, Rice & Dal", pricePaise: 8500, unit: Unit.KG,
+      aliases: ["rice", "chawal", "चावल"] },
+    { store: storeA, name: "Amul Gold Milk 1L", category: "Dairy & Eggs", pricePaise: 7200, unit: Unit.L,
+      aliases: ["milk", "doodh", "दूध", "amul"] },
+    { store: storeA, name: "Lays Classic Salted 50g", category: "Snacks & Beverages", pricePaise: 2000, unit: Unit.G,
+      aliases: ["chips", "lays", "potato chips"] },
+    { store: storeA, name: "Bingo Mad Angles 100g", category: "Snacks & Beverages", pricePaise: 3000, unit: Unit.G,
+      aliases: ["chips", "bingo"] },
+    { store: storeA, name: "Colgate Strong Teeth 200g", category: "Personal Care", pricePaise: 11500, unit: Unit.G,
+      aliases: ["toothpaste", "manjan", "मंजन"] },
+    { store: storeB, name: "Toor Dal 1kg", category: "Atta, Rice & Dal", pricePaise: 14500, unit: Unit.KG,
+      aliases: ["dal", "toor", "arhar", "तूअर दाल"] },
+    { store: storeB, name: "Nandini Curd 500g", category: "Dairy & Eggs", pricePaise: 4500, unit: Unit.G,
+      aliases: ["curd", "dahi", "yogurt", "दही"] },
+    { store: storeB, name: "Coca Cola 750ml", category: "Snacks & Beverages", pricePaise: 4000, unit: Unit.ML,
+      aliases: ["cola", "soft drink", "coke"] },
+    { store: storeB, name: "Parle-G Original 250g", category: "Snacks & Beverages", pricePaise: 2500, unit: Unit.G,
+      aliases: ["biscuit", "parle", "parle g"] },
+    { store: storeB, name: "Dove Soap 100g", category: "Personal Care", pricePaise: 7500, unit: Unit.G,
+      aliases: ["soap", "sabun", "साबुन"] },
+    { store: storeB, name: "Surf Excel 1kg", category: "Personal Care", pricePaise: 25000, unit: Unit.KG,
+      aliases: ["detergent", "washing powder", "surf"] },
   ]
   for (const p of productSpec) {
     const existing = await prisma.product.findFirst({
       where: { storeId: p.store.id, name: p.name },
     })
-    if (existing) continue
+    if (existing) {
+      // Backfill aliases on existing rows so re-seeding upgrades the search dataset.
+      if (p.aliases !== undefined) {
+        await prisma.product.update({
+          where: { id: existing.id },
+          data: { searchAliases: p.aliases.map((a) => a.toLowerCase()) },
+        })
+      }
+      continue
+    }
     await prisma.product.create({
       data: {
         storeId: p.store.id,
@@ -150,6 +178,7 @@ async function main(): Promise<void> {
         unit: p.unit,
         isActive: true,
         isAvailable: true,
+        searchAliases: (p.aliases ?? []).map((a) => a.toLowerCase()),
       },
     })
   }

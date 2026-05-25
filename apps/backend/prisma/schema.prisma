@@ -209,6 +209,17 @@ model Product {
   // Owner-toggled or reset nightly by the Phase 11 cron.
   isAvailable Boolean @default(true)
 
+  // Phase 4.2 search:
+  //  - searchAliases: owner-curated synonyms / cross-language tokens
+  //    (e.g., ["dhaniya", "धनिया", "coriander leaves"]). Bounded to 20
+  //    entries × 100 chars in the validation layer.
+  //  - searchVector: tsvector maintained by the product_search_vector_update
+  //    trigger from name + description + categoryName + storeName +
+  //    searchAliases. Unsupported because Prisma can't model tsvector;
+  //    served via raw SQL in the /v1/search/products endpoint.
+  searchAliases String[] @default([])
+  searchVector  Unsupported("tsvector")?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -216,6 +227,7 @@ model Product {
 
   @@index([storeId, isActive])
   @@index([storeId, categoryId, isActive])
+  @@index([storeId, isActive, isAvailable])
 }
 
 // --- Addresses ----------------------------------------------------------
