@@ -1,0 +1,275 @@
+# Kirana Backend — Build Progress
+
+> Read this first if you're resuming work in a new session. It captures every
+> decision, every phase, every deferral, and every gotcha so context isn't lost.
+
+**Repo:** `online-kirana-store` (Turborepo monorepo, npm workspaces)
+**Backend lives at:** `apps/backend`
+**Build prompt:** the user's original instructions (in the chat history) split
+the backend into 13 numbered phases. We've split Phase 4 into 3 sub-phases
+(4.1, 4.2, 4.3) because of scope additions (search + commerce primitives).
+
+---
+
+## Quick start for a fresh session
+
+```bash
+# From repo root
+npm install                                     # workspace install
+cd apps/backend
+npx prisma generate                             # regenerate Prisma client
+npm run db:seed                                 # idempotent — safe to re-run
+npm run dev                                     # http://localhost:4000
+npm run test                                    # full Vitest suite
+```
+
+**Seeded login credentials** (password is `Password123!` for every seeded user):
+- Admin: `+919900000000`
+- Owners: `+919900000001` (Sri Krishna Kirana), `+919900000002` (Reddy Provisions)
+- Customers: `+919900000010`, `+919900000011`
+
+**Tooling:** Node 20+, npm 11, Turborepo, Prisma 7, Express 5, Vitest, jose,
+argon2, helmet, cors, pino, express-rate-limit. **No Docker** — the user opted
+to use Neon directly.
+
+**Database:** Neon Postgres. URLs in `apps/backend/.env` (gitignored — the
+user shared a live URL in chat; ask them to rotate after the build is done).
+`DATABASE_URL` = pooled (runtime, via `@prisma/adapter-neon`).
+`DIRECT_URL` = unpooled (for `prisma migrate`, via `prisma.config.ts`).
+
+---
+
+## Phase status
+
+| #     | Phase                                                              | Status        | Commit    |
+|-------|--------------------------------------------------------------------|---------------|-----------|
+| 0     | Scaffold apps/backend + packages/shared                            | ✅ done        | `07eebed` |
+| 1     | Prisma schema + PostGIS migration + seed                           | ✅ done        | `6d6cd84` |
+| 2     | Core API infra (errors, validation, CORS, rate-limit, helmet)      | ✅ done        | `b46bb61` |
+| 3     | Auth (signup/login/refresh/logout/me) + admin approval + CSRF      | ✅ done        | `b432f90` |
+| 4.1   | Stores + products + categories CRUD + event bus                    | ✅ done        | `c09f922` |
+| 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
+| 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ⏳ next        |           |
+| 5     | Discovery — PostGIS /stores/nearby + store detail                  | ⏳ pending     |           |
+| 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
+| 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
+| 8     | Order lifecycle state machine (accept/reject/modify/advance/cancel)| ⏳ pending     |           |
+| 9     | Socket.IO real-time (rooms, handshake auth)                        | ⏳ pending     |           |
+| 10    | Notifications — WhatsApp Cloud API + web-push + webhook            | ⏳ pending     |           |
+| 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
+| 12    | Cloudinary signed uploads                                          | ⏳ pending     |           |
+| 13    | Hardening pass + apps/backend/README + full suite                  | ⏳ pending     |           |
+
+**Side track (mentioned but not started):**
+- `apps/admin` Next.js shell — admin-only UI for approving owners + managing
+  categories. The API endpoints exist (`/v1/admin/*`). The user said to defer
+  the Next.js app for now.
+- `apps/customer` and `apps/owner` PWAs — not started; only `apps/web`
+  (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
+  comma-separated list so future frontends just append their origin.
+
+---
+
+## User-locked decisions (DO NOT RE-ASK)
+
+1. **Spec source:** the user opted "build from this prompt only" — no
+   `docs/system-design.md` exists. When the prompt is silent on a detail,
+   ask before guessing.
+2. **App naming:** the backend is `apps/backend` (NOT `apps/api` from the
+   build prompt). 3 frontends planned later: `apps/customer`, `apps/owner`,
+   `apps/admin`.
+3. **OrderStatus enum:** `PLACED → ACCEPTED → OUT_FOR_DELIVERY → DELIVERED`
+   plus `REJECTED` and `CANCELLED`. No `PREPARING`. No `READY`.
+4. **Categories:** GLOBAL (single table, no `storeId`). Admin creates them;
+   owners only select from the existing list. Phase 4.1 added admin
+   endpoints.
+5. **PaymentStatus:** `PENDING → COLLECTED` only. No `VOIDED`. The order
+   status itself signals "no money will be collected" for REJECTED/CANCELLED.
+6. **Phone format:** accept any (light normalization — strip non-digit/+
+   chars). No country-code validation. See `src/lib/phone.ts`.
+7. **Refresh token transport:** `httpOnly` cookie scoped to `/v1/auth` +
+   double-submit CSRF cookie (`kirana_csrf`) echoed in `X-Csrf-Token`
+   header.
+8. **Signup posture:** open for CUSTOMER (immediate). Open for OWNER but
+   `isApproved=false` until admin flips it. ADMIN signup is closed — admins
+   are seeded only.
+9. **pricePaise floor:** 100 (₹1 minimum). Ceiling 5,000,000 (₹50,000).
+10. **Embeddings (pgvector) for native-script search:** deferred. Current
+    search is pg_trgm + tsvector + owner-curated `searchAliases`.
+
+---
+
+## Architecture conventions
+
+- **Layering:** route → controller → service → Prisma. Business logic lives
+  in `services` only.
+- **Validation:** every endpoint uses `validate({ body, query, params })`
+  middleware. Validated data lives on `req.validated` (NOT `req.query` —
+  Express 5 doesn't propagate Object.assign mutations to req.query for
+  type-coerced values). Use `getValidated(req)` from `src/lib/validated.ts`.
+- **Errors:** `AppError` hierarchy in `src/lib/errors.ts`. Prisma errors
+  pass through `rethrowAsAppError()` from `src/lib/prisma-errors.ts`
+  (P2002 → 409, P2003 → 400, P2025 → 404).
+- **Response envelope:** success `{ data }`, error `{ error: { code, message,
+  details? } }`. Use `sendData`, `sendCreated`, `sendNoContent` from
+  `src/lib/response.ts`. Error codes live in
+  `packages/shared/src/error-codes.ts`.
+- **Money:** integer paise everywhere. Never floats.
+- **Time:** UTC in DB. Decimal lat/lng pass to Prisma as STRINGS (Phase 1
+  lesson).
+- **Auth:** `requireAuth` re-reads the DB on every request — the JWT `role`
+  claim is advisory, never trusted for authorization. `requireRole(...)`
+  layers on. `requireOwnStore` sets `req.ownStore` for product routes.
+- **Domain events:** `events.emit(...)` from `src/lib/events.ts` in every
+  mutating service. Phase 9 will plug Socket.IO into this bus; Phase 10
+  plugs WhatsApp/web-push. Controllers don't need to change.
+
+---
+
+## Schema gotchas (read before any new migration)
+
+1. **`Store.location` is `Unsupported("geography(Point,4326)")`** in
+   schema.prisma. Every `prisma migrate dev --create-only` re-proposes
+   `DROP INDEX Store_location_gist_idx`. **Delete that line by hand** in
+   every generated migration; the GiST index is required by Phase 5
+   discovery.
+2. **Migration apply pattern:** `--create-only` then hand-edit if needed,
+   then `prisma migrate deploy`. We do NOT use `prisma migrate dev` to
+   apply (Neon's pooled connection doesn't support the shadow DB Migrate
+   wants). The migration is applied via the unpooled `DIRECT_URL` per
+   `prisma.config.ts`.
+3. **String[] columns** (e.g. `Product.searchAliases`) need explicit
+   `NOT NULL DEFAULT ARRAY[]::text[]` in the migration; Prisma generates
+   them nullable by default which mismatches the TS type.
+4. **`unaccent` is not IMMUTABLE.** To index on it, wrap in
+   `immutable_unaccent(text)` (defined in the search migration). Direct
+   `unaccent(name)` in an index expression will fail with `42P17`.
+
+---
+
+## Deferred items (DO NOT FORGET in Phase 13)
+
+### From the Phase 4.2 reviewer-perf audit (search code)
+
+All five are HIGH-impact at scale (10k+ products); the current 12-product
+seed dataset hides them. Defer to Phase 13 hardening.
+
+1. **Category/Store rename = write storm.** The propagation trigger
+   `UPDATE Product SET searchAliases = searchAliases WHERE categoryId = X`
+   runs inline in the Category UPDATE transaction. For a 10k-product
+   category, this means 10k row locks + 10k tsvector rebuilds + 3 GIN
+   index updates per row, all in one tx. Fix: async worker batching
+   500 rows per tx, OR drop the denormalization and JOIN category name
+   at query time. File: `apps/backend/prisma/migrations/20260525205855_add_product_search/migration.sql`
+2. **`word_similarity(q, name) > 0.4` doesn't use the trgm GIN index.**
+   Function-call + inequality form isn't sargable. Fix: switch to
+   `q <% name` operator + `SET LOCAL pg_trgm.word_similarity_threshold = 0.4`.
+   File: `apps/backend/src/modules/search/search.service.ts:145`
+3. **`p.name ILIKE '%q%'` doesn't use the index either** — the index is on
+   `immutable_unaccent(name)`, not raw `name`. Fix: rewrite predicate to
+   `immutable_unaccent(p.name) ILIKE '%' || immutable_unaccent(${q}) || '%'`.
+   File: `apps/backend/src/modules/search/search.service.ts:147`
+4. **OR of 4 legs → planner can't use a single index.** Compounds with #2/#3.
+   Fix: once #2/#3 are sargable, planner BitmapOrs the 4 GIN indexes; or
+   restructure as UNION-of-IDs then rescore.
+5. **`ORDER BY GREATEST(...)` materializes + sorts whole match set.** No
+   index can satisfy this. OFFSET pagination gets slower per page. Fix:
+   bound candidate set per leg (top 500), then score+sort the bounded set.
+   Cursor over (score, id) for deep pagination.
+
+### Earlier deferrals (still open)
+
+- **Owner-rejection audit table.** Phase 3 admin `POST /admin/users/:id/reject`
+  hard-deletes the row; no audit. If we want a history view, add an
+  `OwnerRejection` table.
+- **`assertCurrentRole` helper** for long-running requests where the role
+  might change between middleware and service-layer DB write. Not needed
+  for current short admin actions.
+- **Admin store moderation** (suspend/reactivate a store) — endpoint not
+  built. Admin can only flag owners. Add to a future admin phase.
+- **`apps/admin` Next.js shell** — user said to defer.
+- **pgvector embeddings** for native-script semantic search without aliases.
+  Current pg_trgm + aliases path is good for English + Romanized + typos.
+
+---
+
+## Test infrastructure
+
+- **Vitest config:** sequential file run (`fileParallelism: false`,
+  `singleFork`). Tests hit the real Neon DB.
+- **Per-run phone prefix:** `tests/helpers/factories.ts` generates
+  `+9988<7-digit-run-id><suffix>` for every test user. `cleanupRun()`
+  deletes by prefix in `afterAll`. Safe alongside the seed dataset.
+- **Test categories** use a `ZZZ-TEST-` name prefix that `cleanupRun` also
+  removes.
+- **Rate limiters are bypassed in `NODE_ENV=test`** (tests burst from one
+  IP). The check lives in `src/middleware/rate-limit.ts` and
+  `src/middleware/auth-rate-limit.ts`.
+- **Auth tests can shortcut admin approval** via direct DB UPDATE
+  (`signupApprovedOwner` factory). The full approval flow is still tested
+  in `auth.test.ts`.
+
+---
+
+## Files / dirs cheat sheet
+
+```
+apps/backend/
+  prisma/
+    schema.prisma                       — schema (read the top comment about Unsupported!)
+    migrations/                         — never edit applied migrations
+    seed.ts                             — idempotent seed
+  prisma.config.ts                      — Prisma 7 contract: directUrl for CLI
+  src/
+    config/env.ts                       — Zod-validated env at boot
+    db/prisma.ts                        — PrismaClient singleton with @prisma/adapter-neon
+    generated/prisma/                   — Prisma 7 generated client (gitignored)
+    lib/
+      errors.ts                         — AppError hierarchy
+      response.ts                       — envelope helpers
+      logger.ts                         — pino + redact
+      jwt.ts                            — jose HS256
+      passwords.ts                      — argon2id
+      refresh-tokens.ts                 — sha256-hashed, atomic rotation, family-revoke
+      csrf.ts                           — double-submit token
+      phone.ts                          — light normalize
+      events.ts                         — typed domain event bus
+      prisma-errors.ts                  — P2002/P2003/P2025 → AppError
+      validated.ts                      — getValidated(req) helper
+    middleware/
+      auth.ts                           — requireAuth + requireRole + ensureOwnership
+      auth-rate-limit.ts                — per-route limits (login/signup/refresh)
+      cors.ts                           — env-driven allowlist, hard reject on miss
+      error-handler.ts                  — central error handler + notFoundHandler
+      rate-limit.ts                     — global limiter (test-bypassed)
+      request-id.ts                     — pino-http with X-Request-Id
+      require-own-store.ts              — sets req.ownStore for product routes
+      validate.ts                       — Zod → req.validated.{body,query,params}
+    modules/
+      admin/                            — pending-owners + approve/reject + category admin
+      auth/                             — signup/login/refresh/logout/me
+      categories/                       — public list + admin CRUD
+      products/                         — owner CRUD nested under /stores/me/products
+      search/                           — /v1/search/products + service used by owner q=
+      stores/                           — owner /stores/me CRUD + isOpen toggle
+  scripts/
+    db-inspect.ts                       — list tables/extensions/triggers
+    postgis-smoke.ts                    — ST_DWithin verification (Phase 1 done-check)
+  tests/
+    helpers/factories.ts                — phone-prefix-scoped fixtures
+    auth.test.ts                        — 24 cases
+    categories.test.ts                  — 11 cases
+    products.test.ts                    — 18 cases
+    search.test.ts                      — 29 cases
+    stores.test.ts                      — 15 cases
+```
+
+---
+
+## Workflow rule the user established
+
+After every phase: **implement → reviewer-\* subagent audit → end-to-end
+test against Neon → backtrack-and-fix → commit only when truly green →
+pause for explicit user approval before the next phase.**
+
+The user does not want auto-progression. Wait for them.
