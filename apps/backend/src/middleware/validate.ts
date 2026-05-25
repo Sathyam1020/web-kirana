@@ -16,16 +16,30 @@ interface ValidateOptions<
 
 type Inferred<T extends ZodTypeAny | undefined> = T extends ZodTypeAny ? z.infer<T> : undefined
 
+declare module "express-serve-static-core" {
+  interface Request {
+    /**
+     * Validated + transformed input from `validate(...)`. Controllers read
+     * from here instead of req.query / req.params (which Express 5 doesn't
+     * let us safely mutate to propagate type-coerced values like
+     * `limit: number`). req.body is also mirrored here for symmetry.
+     */
+    validated?: {
+      body?: unknown
+      query?: unknown
+      params?: unknown
+    }
+  }
+}
+
 /**
  * Validates request body / query / params against Zod schemas before the
- * route handler runs. On failure, throws a ValidationError with a flat
- * details payload the central error handler renders.
+ * route handler runs. On failure, throws a ValidationError; no partial
+ * mutation — the validated payload is only published on req.validated /
+ * req.body if every present schema succeeded.
  *
  * Schemas are responsible for rejecting unknown fields — use `.strict()`
  * on object schemas to keep request shapes tight.
- *
- * Validated data is REPLACED on req — req.body becomes the parsed value
- * (with defaults applied and transforms run), not the raw input.
  */
 export function validate<
   TBody extends ZodTypeAny | undefined = undefined,
@@ -47,10 +61,19 @@ export function validate<
       }
     }
 
+    // Stage parsed payloads; commit them only if every section succeeded.
+    let parsedBody: unknown
+    let parsedQuery: unknown
+    let parsedParams: unknown
+    let bodyParsed = false
+    let queryParsed = false
+    let paramsParsed = false
+
     if (schemas.body !== undefined) {
       const parsed = schemas.body.safeParse(req.body)
       if (parsed.success) {
-        req.body = parsed.data
+        parsedBody = parsed.data
+        bodyParsed = true
       } else {
         addIssue("body", parsed.error)
       }
@@ -58,8 +81,8 @@ export function validate<
     if (schemas.query !== undefined) {
       const parsed = schemas.query.safeParse(req.query)
       if (parsed.success) {
-        // req.query is an Express getter; Object.assign keeps the prototype.
-        Object.assign(req.query, parsed.data as object)
+        parsedQuery = parsed.data
+        queryParsed = true
       } else {
         addIssue("query", parsed.error)
       }
@@ -67,7 +90,8 @@ export function validate<
     if (schemas.params !== undefined) {
       const parsed = schemas.params.safeParse(req.params)
       if (parsed.success) {
-        Object.assign(req.params, parsed.data as object)
+        parsedParams = parsed.data
+        paramsParsed = true
       } else {
         addIssue("params", parsed.error)
       }
@@ -77,9 +101,18 @@ export function validate<
       next(new ValidationError("Validation failed", { issues: flattenedIssues }))
       return
     }
+
+    const validated: { body?: unknown; query?: unknown; params?: unknown } = {}
+    if (bodyParsed) {
+      req.body = parsedBody
+      validated.body = parsedBody
+    }
+    if (queryParsed) validated.query = parsedQuery
+    if (paramsParsed) validated.params = parsedParams
+
+    req.validated = validated
     next()
   }
 }
 
-// Convenience re-exports for callers.
 export type { Inferred }

@@ -72,6 +72,17 @@ export class StoreClosedError extends AppError {
   }
 }
 
+/**
+ * Phase 4: owner is authed + role-gated but hasn't created their store yet.
+ * 404 + STORE_NOT_CREATED is the signal for the owner PWA to route to its
+ * onboarding screen.
+ */
+export class StoreNotCreatedError extends AppError {
+  constructor(message = "Create a store before performing this action") {
+    super(404, ErrorCode.STORE_NOT_CREATED, message)
+  }
+}
+
 export class OutOfServiceAreaError extends AppError {
   constructor(message = "Delivery location is outside the store's service area") {
     super(409, ErrorCode.OUT_OF_SERVICE_AREA, message)

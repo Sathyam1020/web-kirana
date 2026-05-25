@@ -12,6 +12,7 @@ export const ErrorCode = {
 
   // Domain-specific (filled in by later phases).
   STORE_CLOSED: "STORE_CLOSED",
+  STORE_NOT_CREATED: "STORE_NOT_CREATED",
   OUT_OF_SERVICE_AREA: "OUT_OF_SERVICE_AREA",
   CART_CHANGED: "CART_CHANGED",
   INVALID_TRANSITION: "INVALID_TRANSITION",

@@ -2,6 +2,7 @@ import { Router } from "express"
 import { Role } from "../../generated/prisma/enums.js"
 import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
+import { categoriesAdminRouter } from "../categories/categories.routes.js"
 import * as controller from "./admin.controller.js"
 import { userIdParamSchema } from "./admin.schemas.js"
 
@@ -24,3 +25,8 @@ adminRouter.post(
   validate({ params: userIdParamSchema }),
   controller.rejectOwner,
 )
+
+// Category admin endpoints (categoriesAdminRouter already imposes
+// requireAuth + requireRole(ADMIN), so the double-gate is harmless and the
+// router is reusable if we ever mount it differently).
+adminRouter.use("/categories", categoriesAdminRouter)
