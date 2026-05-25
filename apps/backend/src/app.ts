@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser"
 import express, { type Express, type Request, type Response, Router } from "express"
 import helmet from "helmet"
 import { z } from "zod"
@@ -9,6 +10,8 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler.js"
 import { globalRateLimiter } from "./middleware/rate-limit.js"
 import { httpLogger } from "./middleware/request-id.js"
 import { validate } from "./middleware/validate.js"
+import { adminRouter } from "./modules/admin/admin.routes.js"
+import { authRouter } from "./modules/auth/auth.routes.js"
 
 export function buildApp(): Express {
   const app = express()
@@ -16,17 +19,16 @@ export function buildApp(): Express {
   app.disable("x-powered-by")
   app.set("trust proxy", 1)
 
-  // Security headers first — covers responses to errors and 404s too.
   app.use(helmet())
   app.use(corsMiddleware)
 
   app.use(httpLogger)
   app.use(express.json({ limit: "1mb" }))
+  app.use(cookieParser())
 
-  // Global limiter, then per-route limiters layered on top by later phases.
   app.use(globalRateLimiter)
 
-  // --- Health endpoints (no auth, no rate limit consequence for ops) -----
+  // --- Health endpoints --------------------------------------------------
   app.get("/health", (_req: Request, res: Response) => {
     sendData(res, { status: "ok" })
   })
@@ -45,9 +47,11 @@ export function buildApp(): Express {
 
   // --- v1 router ---------------------------------------------------------
   const v1 = Router()
+  v1.use("/auth", authRouter)
+  v1.use("/admin", adminRouter)
 
-  // Sample route exercising the pipeline. Phase 3+ replace it with real
-  // modules; keep it here until then so the contract is testable.
+  // Sample echo route — kept until later phases replace it with real domain
+  // endpoints. Validates the pipeline end-to-end during dev.
   const echoBody = z.strictObject({
     message: z.string().min(1).max(280),
     times: z.number().int().min(1).max(10).optional().default(1),

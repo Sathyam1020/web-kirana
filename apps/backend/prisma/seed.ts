@@ -44,6 +44,20 @@ async function main(): Promise<void> {
     return found.id
   }
 
+  // Admin — bootstrap account. No public signup for ADMIN; this is the only
+  // way an admin row exists in the DB.
+  await prisma.user.upsert({
+    where: { phone: "+919900000000" },
+    update: {},
+    create: {
+      phone: "+919900000000",
+      passwordHash,
+      role: Role.ADMIN,
+      name: "Marketplace Admin",
+      isApproved: true,
+    },
+  })
+
   // Owners + stores.
   const ownerA = await prisma.user.upsert({
     where: { phone: "+919900000001" },
@@ -185,9 +199,11 @@ async function main(): Promise<void> {
   console.log(
     `Seed complete. Login password for every seeded user: "${SEED_PASSWORD}".`,
   )
-  console.log("Stores:")
-  console.log(`  - ${storeA.name} (owner ${ownerA.phone})`)
-  console.log(`  - ${storeB.name} (owner ${ownerB.phone})`)
+  console.log("Admin login: phone +919900000000")
+  console.log("Owners:")
+  console.log(`  - ${storeA.name} → owner phone ${ownerA.phone}`)
+  console.log(`  - ${storeB.name} → owner phone ${ownerB.phone}`)
+  console.log("Customers: +919900000010 (Anita), +919900000011 (Karthik)")
 }
 
 main()

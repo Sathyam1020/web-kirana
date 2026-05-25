@@ -1,6 +1,17 @@
 import cors, { type CorsOptions } from "cors"
 import { env } from "../config/env.js"
+import { ForbiddenError } from "../lib/errors.js"
 import { logger } from "../lib/logger.js"
+
+/**
+ * Internal error type for CORS rejection. The cors library will call our
+ * error handler with the message, which we then convert into a typed 403.
+ */
+class CorsRejectedError extends ForbiddenError {
+  constructor(origin: string) {
+    super(`Origin not allowed: ${origin}`)
+  }
+}
 
 /**
  * CORS allowlist from env. Credentials are enabled because the refresh-token
@@ -20,7 +31,9 @@ const options: CorsOptions = {
     if (origin === undefined || origin === null) return callback(null, true)
     if (allowlist.has(origin)) return callback(null, true)
     logger.warn({ origin }, "CORS: rejecting unknown origin")
-    return callback(null, false)
+    // Hard reject — the cors lib short-circuits the request, the handler
+    // never runs, and the error envelope is shaped by our central handler.
+    return callback(new CorsRejectedError(origin))
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

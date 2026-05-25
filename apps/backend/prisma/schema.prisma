@@ -10,6 +10,13 @@
 // Prisma 7: the generated client lives at the `output` path below, and the
 // datasource URL is configured in ../prisma.config.ts (CLI) + src/db/prisma.ts
 // (runtime via @prisma/adapter-neon).
+//
+// ⚠️  PostGIS gotcha: Store.location and its GiST index `Store_location_gist_idx`
+//     are managed by raw SQL in migrations/ (Prisma can't model GiST on
+//     Unsupported columns). Every `prisma migrate dev --create-only` will
+//     re-propose `DROP INDEX Store_location_gist_idx`; delete that line from
+//     the generated migration before applying. The init migration is the
+//     source of truth for the index.
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -24,6 +31,7 @@ datasource db {
 enum Role {
   CUSTOMER
   OWNER
+  ADMIN
 }
 
 enum Unit {
@@ -76,6 +84,16 @@ model User {
   passwordHash String
   role         Role
   name         String
+
+  // Approval gate: customers default to isApproved=true; owner signups are
+  // created with isApproved=false and must be approved by an ADMIN before
+  // login succeeds. Set on the row that performed the approval for audit.
+  isApproved   Boolean  @default(true)
+  approvedAt   DateTime?
+  approvedById String?
+  approvedBy   User?    @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedUsers User[]  @relation("UserApprovedBy")
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -88,6 +106,7 @@ model User {
   idempotencyKeys    IdempotencyKey[]
 
   @@index([role])
+  @@index([role, isApproved])
 }
 
 model RefreshToken {
@@ -144,9 +163,12 @@ model Store {
   isOpen      Boolean @default(false)
 
   // Stored coordinates; the geography column `location` is maintained by
-  // a database trigger added in the PostGIS migration.
+  // a database trigger added in the PostGIS migration. Marked Unsupported
+  // so Prisma knows it exists and won't try to drop it on the next migrate,
+  // but it remains read/write-able only via raw SQL ($queryRaw / migrations).
   latitude    Decimal @db.Decimal(10, 7)
   longitude   Decimal @db.Decimal(10, 7)
+  location    Unsupported("geography(Point, 4326)")?
 
   deliveryRadiusMeters Int @default(3000)
   minOrderPaise        Int @default(0)
