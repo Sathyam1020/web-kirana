@@ -7,3 +7,27 @@ export const userIdParamSchema = z.strictObject({
   id: z.string().min(1).max(40),
 })
 export type UserIdParam = z.infer<typeof userIdParamSchema>
+
+export const productIdParamSchema = z.strictObject({
+  id: z.string().min(1).max(40),
+})
+export type ProductIdParam = z.infer<typeof productIdParamSchema>
+
+/**
+ * Promotion expiry. Required, must be in the future. No min duration — admin
+ * can short-promote (e.g., 1-hour flash) if they want.
+ */
+export const promoteProductBodySchema = z
+  .strictObject({
+    promotedUntil: z.coerce.date(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.promotedUntil.getTime() <= Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["promotedUntil"],
+        message: "promotedUntil must be in the future",
+      })
+    }
+  })
+export type PromoteProductBody = z.infer<typeof promoteProductBodySchema>

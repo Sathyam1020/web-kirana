@@ -11,6 +11,7 @@ import { httpLogger } from "./middleware/request-id.js"
 import { adminRouter } from "./modules/admin/admin.routes.js"
 import { authRouter } from "./modules/auth/auth.routes.js"
 import { categoriesPublicRouter } from "./modules/categories/categories.routes.js"
+import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
 import { searchRouter } from "./modules/search/search.routes.js"
 import { storesRouter } from "./modules/stores/stores.routes.js"
 
@@ -51,6 +52,7 @@ export function buildApp(): Express {
   v1.use("/auth", authRouter)
   v1.use("/admin", adminRouter)
   v1.use("/categories", categoriesPublicRouter)
+  v1.use("/coupons", couponsPublicRouter)
   v1.use("/search", searchRouter)
   v1.use("/stores", storesRouter)
 

@@ -4,6 +4,7 @@ import { validate } from "../../middleware/validate.js"
 import * as controller from "./products.controller.js"
 import {
   createProductBodySchema,
+  featureProductBodySchema,
   listProductsQuerySchema,
   productIdParamSchema,
   updateProductBodySchema,
@@ -52,4 +53,16 @@ productsRouter.post(
   "/:id/restore",
   validate({ params: productIdParamSchema }),
   controller.restore,
+)
+
+// Featured (owner-only, scoped to caller's store)
+productsRouter.post(
+  "/:id/feature",
+  validate({ params: productIdParamSchema, body: featureProductBodySchema }),
+  controller.feature,
+)
+productsRouter.delete(
+  "/:id/feature",
+  validate({ params: productIdParamSchema }),
+  controller.unfeature,
 )

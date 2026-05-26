@@ -76,6 +76,17 @@ enum WhatsAppMessageStatus {
   READ
 }
 
+// Phase 4.3 — coupons
+enum CouponType {
+  PERCENT     // value is 1..100 (interpreted as a percentage)
+  FLAT_PAISE  // value is the absolute discount in paise
+}
+
+enum CouponScope {
+  GLOBAL   // any store; created by admin only
+  STORE    // scoped to one store; created by that store's owner
+}
+
 // --- Identity -----------------------------------------------------------
 
 model User {
@@ -104,6 +115,10 @@ model User {
   statusHistoryActs  OrderStatusHistory[] @relation("StatusActor")
   pushSubscriptions  PushSubscription[]
   idempotencyKeys    IdempotencyKey[]
+
+  // Phase 4.3 — coupons
+  couponsCreated     Coupon[]            @relation("CouponCreatedBy")
+  couponRedemptions  CouponRedemption[]
 
   @@index([role])
   @@index([role, isApproved])
@@ -183,6 +198,7 @@ model Store {
 
   products Product[]
   orders   Order[]
+  coupons  Coupon[]
 
   @@index([isActive, isOpen])
   @@index([city])
@@ -209,6 +225,20 @@ model Product {
   // Owner-toggled or reset nightly by the Phase 11 cron.
   isAvailable Boolean @default(true)
 
+  // Phase 4.3 — merchandising hooks.
+  //  Featured: owner-controlled, within their store. featuredOrder is
+  //  an ascending sort key (lower = more prominent); null means "not
+  //  pinned". Phase 5 store detail surfaces featured rows first.
+  isFeatured    Boolean @default(false)
+  featuredOrder Int?
+
+  //  Promoted: admin-controlled, marketplace-wide. Phase 4.2 search +
+  //  Phase 5 discovery use the (isPromoted, promotedUntil) pair to
+  //  multiply the score for products that are still in the window.
+  //  No cleanup cron — the timestamp check auto-expires the boost.
+  isPromoted    Boolean   @default(false)
+  promotedUntil DateTime?
+
   // Phase 4.2 search:
   //  - searchAliases: owner-curated synonyms / cross-language tokens
   //    (e.g., ["dhaniya", "धनिया", "coriander leaves"]). Bounded to 20
@@ -228,6 +258,10 @@ model Product {
   @@index([storeId, isActive])
   @@index([storeId, categoryId, isActive])
   @@index([storeId, isActive, isAvailable])
+  // Phase 4.3 — featured pins surface first in store detail
+  @@index([storeId, isFeatured, featuredOrder])
+  // Promotion expiry check happens often in search/discovery
+  @@index([isPromoted, promotedUntil])
 }
 
 // --- Addresses ----------------------------------------------------------
@@ -304,6 +338,10 @@ model Order {
 
   items   OrderItem[]
   history OrderStatusHistory[]
+
+  // Phase 4.3 — at most one coupon per order (Phase 7 enforces in tx).
+  // The relation is optional; null = no coupon used.
+  couponRedemption CouponRedemption?
 
   @@index([customerId, status])
   @@index([storeId, status])
@@ -417,4 +455,69 @@ model PushSubscription {
   lastSeenAt  DateTime @default(now())
 
   @@index([userId])
+}
+
+// --- Coupons (Phase 4.3) ------------------------------------------------
+
+model Coupon {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  type        CouponType
+  // PERCENT: value is 1..100 (percent of subtotal)
+  // FLAT_PAISE: value is the discount in paise
+  value       Int
+
+  scope       CouponScope
+  // Required when scope = STORE. NULL for GLOBAL.
+  storeId     String?
+  store       Store?      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Cap on PERCENT-type discounts (e.g., "50% off, max ₹100"). Ignored
+  // for FLAT_PAISE.
+  maxDiscountPaise Int?
+  minOrderPaise    Int    @default(0)
+
+  validFrom    DateTime  @default(now())
+  validUntil   DateTime?
+
+  isActive     Boolean   @default(true)
+
+  // null = unlimited. Phase 7 enforces via the redemption table count.
+  totalUsageLimit Int?
+  perUserLimit    Int     @default(1)
+  // Maintained atomically by Phase 7 inside the order tx.
+  usageCount      Int     @default(0)
+
+  createdById  String
+  createdBy    User      @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  redemptions  CouponRedemption[]
+
+  @@index([scope, isActive])
+  @@index([storeId, isActive])
+  @@index([code, isActive])
+}
+
+model CouponRedemption {
+  id                   String   @id @default(cuid())
+  couponId             String
+  coupon               Coupon   @relation(fields: [couponId], references: [id], onDelete: Restrict)
+
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One redemption row per Order — uniqueness here is what prevents
+  // double-apply on a single order.
+  orderId              String   @unique
+  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  discountAppliedPaise Int
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, couponId])
+  @@index([couponId, createdAt])
 }

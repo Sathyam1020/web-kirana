@@ -49,7 +49,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 3     | Auth (signup/login/refresh/logout/me) + admin approval + CSRF      | ✅ done        | `b432f90` |
 | 4.1   | Stores + products + categories CRUD + event bus                    | ✅ done        | `c09f922` |
 | 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
-| 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ⏳ next        |           |
+| 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | (next)    |
 | 5     | Discovery — PostGIS /stores/nearby + store detail                  | ⏳ pending     |           |
 | 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
@@ -128,10 +128,12 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 
 ## Schema gotchas (read before any new migration)
 
-1. **`Store.location` is `Unsupported("geography(Point,4326)")`** in
-   schema.prisma. Every `prisma migrate dev --create-only` re-proposes
-   `DROP INDEX Store_location_gist_idx`. **Delete that line by hand** in
-   every generated migration; the GiST index is required by Phase 5
+1. **Three indexes Prisma can't model — always proposed as DROPs:**
+   `Store_location_gist_idx` (Phase 1 PostGIS),
+   `Product_searchVector_gin_idx` and `Product_searchAliases_gin_idx`
+   (Phase 4.2 search). Every `prisma migrate dev --create-only` re-proposes
+   `DROP INDEX` for all three. **Delete those lines by hand** in every
+   generated migration; they're required by Phase 4.2 search and Phase 5
    discovery.
 2. **Migration apply pattern:** `--create-only` then hand-edit if needed,
    then `prisma migrate deploy`. We do NOT use `prisma migrate dev` to
@@ -176,6 +178,20 @@ seed dataset hides them. Defer to Phase 13 hardening.
    index can satisfy this. OFFSET pagination gets slower per page. Fix:
    bound candidate set per leg (top 500), then score+sort the bounded set.
    Cursor over (score, id) for deep pagination.
+
+### From the Phase 4.3 reviewer-authz audit
+
+Already applied inline before the Phase 4.3 commit (no deferrals):
+- MEDIUM — coupon code enumeration via distinguishable lifecycle reasons.
+  Fixed: `preview()` now returns `INVALID_CODE` for all coupon-state
+  failures (not found / inactive / not-yet-valid / expired / fully
+  redeemed / per-user limit / wrong store). Cart-side reasons
+  (`PRODUCT_NOT_FOUND`, `PRODUCT_UNAVAILABLE`, `MULTI_STORE_CART`,
+  `MIN_ORDER_NOT_MET`) stay granular because UX needs them.
+- LOW (handoff) — Phase 7 must enforce `perUserLimit` and global
+  `usageCount < totalUsageLimit` inside a serializable transaction (or
+  via a `(couponId, userId)` partial unique index when perUserLimit=1).
+  The preview is read-only; the actual write race only matters at apply.
 
 ### Earlier deferrals (still open)
 

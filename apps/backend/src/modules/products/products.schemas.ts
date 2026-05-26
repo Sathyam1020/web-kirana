@@ -63,6 +63,15 @@ export const productIdParamSchema = z.strictObject({
 })
 export type ProductIdParam = z.infer<typeof productIdParamSchema>
 
+// Phase 4.3 — Featured (owner self-curates within their store).
+export const featureProductBodySchema = z.strictObject({
+  // Sort key within the store's featured row. Lower = more prominent. If
+  // omitted, defaults to 0 (which puts it first by default unless another
+  // featured product has 0 too — break ties by createdAt).
+  featuredOrder: z.number().int().min(0).max(10_000).optional(),
+})
+export type FeatureProductBody = z.infer<typeof featureProductBodySchema>
+
 export const listProductsQuerySchema = z.strictObject({
   cursor: z.string().min(1).max(40).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),

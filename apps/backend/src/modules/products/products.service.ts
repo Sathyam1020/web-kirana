@@ -22,6 +22,10 @@ export interface ProductView {
   imageUrl: string | null
   isActive: boolean
   isAvailable: boolean
+  isFeatured: boolean
+  featuredOrder: number | null
+  isPromoted: boolean
+  promotedUntil: Date | null
   searchAliases: string[]
   createdAt: Date
   updatedAt: Date
@@ -38,6 +42,10 @@ const SELECT = {
   imageUrl: true,
   isActive: true,
   isAvailable: true,
+  isFeatured: true,
+  featuredOrder: true,
+  isPromoted: true,
+  promotedUntil: true,
   searchAliases: true,
   createdAt: true,
   updatedAt: true,
@@ -55,6 +63,10 @@ function toView(row: {
   imageUrl: string | null
   isActive: boolean
   isAvailable: boolean
+  isFeatured: boolean
+  featuredOrder: number | null
+  isPromoted: boolean
+  promotedUntil: Date | null
   searchAliases: string[]
   createdAt: Date
   updatedAt: Date
@@ -156,8 +168,12 @@ export async function listProducts(
         imageUrl: h.imageUrl,
         isActive: h.isActive,
         isAvailable: h.isAvailable,
-        // searchAliases not in SearchHit; fetch separately if needed.
-        // The owner UI doesn't show aliases in the search-result row, so omit.
+        // SearchHit doesn't carry these. Owner UIs that need them call
+        // get-product after picking a row.
+        isFeatured: false,
+        featuredOrder: null,
+        isPromoted: false,
+        promotedUntil: null,
         searchAliases: [],
         createdAt: new Date(0),
         updatedAt: new Date(0),
@@ -297,5 +313,114 @@ export async function restoreProduct(
   if (claim.count > 0) {
     events.emit({ type: "product.restored", storeId, productId, ownerId })
   }
+  return toView(after)
+}
+
+// --- Featured (owner self-curates) -------------------------------------
+
+/**
+ * Pins a product to the store's featured row. Idempotent: calling with the
+ * same `featuredOrder` twice returns the same view both times.
+ *
+ * Scope: WHERE id AND storeId — owner can't feature a foreign-store product
+ * even with a guessed productId (404, not 403, to avoid leaking existence).
+ */
+export async function featureProduct(
+  storeId: string,
+  ownerId: string,
+  productId: string,
+  input: { featuredOrder?: number },
+): Promise<ProductView> {
+  const claim = await prisma.product.updateMany({
+    where: { id: productId, storeId },
+    data: {
+      isFeatured: true,
+      featuredOrder: input.featuredOrder ?? 0,
+    },
+  })
+  if (claim.count === 0) throw new NotFoundError("Product not found")
+  const after = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: SELECT,
+  })
+  events.emit({
+    type: "product.updated",
+    storeId,
+    productId,
+    ownerId,
+    fields: ["isFeatured", "featuredOrder"],
+  })
+  return toView(after)
+}
+
+export async function unfeatureProduct(
+  storeId: string,
+  ownerId: string,
+  productId: string,
+): Promise<ProductView> {
+  const claim = await prisma.product.updateMany({
+    where: { id: productId, storeId },
+    data: {
+      isFeatured: false,
+      featuredOrder: null,
+    },
+  })
+  if (claim.count === 0) throw new NotFoundError("Product not found")
+  const after = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: SELECT,
+  })
+  events.emit({
+    type: "product.updated",
+    storeId,
+    productId,
+    ownerId,
+    fields: ["isFeatured", "featuredOrder"],
+  })
+  return toView(after)
+}
+
+// --- Promoted (admin marketplace-wide boost) ---------------------------
+
+/**
+ * Admin-only. Scope is global — admin can promote a product in ANY store
+ * (so this lives off `products.service` rather than the owner-scoped path).
+ * The product just needs to exist. Phase 4.2 search multiplies the score
+ * for products whose (isPromoted, promotedUntil) window is active.
+ */
+export async function promoteProductAdmin(
+  productId: string,
+  promotedUntil: Date,
+): Promise<ProductView> {
+  const claim = await prisma.product.updateMany({
+    where: { id: productId },
+    data: {
+      isPromoted: true,
+      promotedUntil,
+    },
+  })
+  if (claim.count === 0) throw new NotFoundError("Product not found")
+  const after = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: SELECT,
+  })
+  return toView(after)
+}
+
+export async function unpromoteProductAdmin(
+  productId: string,
+): Promise<ProductView> {
+  const claim = await prisma.product.updateMany({
+    where: { id: productId },
+    data: {
+      isPromoted: false,
+      promotedUntil: null,
+    },
+  })
+  if (claim.count === 0) throw new NotFoundError("Product not found")
+  const after = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: SELECT,
+  })
   return toView(after)
 }

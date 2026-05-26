@@ -5,6 +5,7 @@ import { getValidated } from "../../lib/validated.js"
 import * as service from "./products.service.js"
 import type {
   CreateProductBody,
+  FeatureProductBody,
   ListProductsQuery,
   ProductIdParam,
   UpdateProductBody,
@@ -58,5 +59,20 @@ export async function restore(req: Request, res: Response): Promise<void> {
   const { storeId, ownerId } = requireContext(req)
   const { id } = getValidated(req).params as ProductIdParam
   const product = await service.restoreProduct(storeId, ownerId, id)
+  sendData(res, { product })
+}
+
+export async function feature(req: Request, res: Response): Promise<void> {
+  const { storeId, ownerId } = requireContext(req)
+  const { id } = getValidated(req).params as ProductIdParam
+  const body = req.body as FeatureProductBody
+  const product = await service.featureProduct(storeId, ownerId, id, body)
+  sendData(res, { product })
+}
+
+export async function unfeature(req: Request, res: Response): Promise<void> {
+  const { storeId, ownerId } = requireContext(req)
+  const { id } = getValidated(req).params as ProductIdParam
+  const product = await service.unfeatureProduct(storeId, ownerId, id)
   sendData(res, { product })
 }

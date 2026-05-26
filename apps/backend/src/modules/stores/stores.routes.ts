@@ -2,6 +2,7 @@ import { Router } from "express"
 import { Role } from "../../generated/prisma/enums.js"
 import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
+import { couponsOwnerRouter } from "../coupons/coupons.routes.js"
 import { productsRouter } from "../products/products.routes.js"
 import * as controller from "./stores.controller.js"
 import {
@@ -40,3 +41,7 @@ storesRouter.patch(
 // requireOwnStore middleware. productsRouter applies requireOwnStore
 // internally.
 storesRouter.use("/me/products", productsRouter)
+
+// Store-scoped coupons (owner-created, STORE scope only). The owner router
+// self-gates with requireAuth + requireRole(OWNER) + requireOwnStore.
+storesRouter.use("/me/coupons", couponsOwnerRouter)
