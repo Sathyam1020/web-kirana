@@ -51,7 +51,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
 | 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
 | 5     | Discovery — PostGIS /stores/nearby + store detail + store products | ✅ done        | `9771c78` |
-| 6     | Customer addresses CRUD                                            | ✅ done        | _pending_ |
+| 6     | Customer addresses CRUD                                            | ✅ done        | `1195c46` |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
 | 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
