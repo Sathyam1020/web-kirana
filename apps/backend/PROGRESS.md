@@ -50,7 +50,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 4.1   | Stores + products + categories CRUD + event bus                    | ✅ done        | `c09f922` |
 | 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
 | 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
-| 5     | Discovery — PostGIS /stores/nearby + store detail                  | ⏳ pending     |           |
+| 5     | Discovery — PostGIS /stores/nearby + store detail + store products | ✅ done        | _pending_ |
 | 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
@@ -69,6 +69,56 @@ user shared a live URL in chat; ask them to rotate after the build is done).
   (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
   comma-separated list so future frontends just append their origin.
 - **`apps/rider`** PWA — implied by the Phase 7.5 plan below.
+
+---
+
+## Phase 5 — Discovery (notes for future sessions)
+
+Public, anonymous-allowed surface used by the customer PWA. Three GETs:
+
+```
+GET /v1/stores/nearby             ?lat &lng &radiusMeters? &page? &limit? &includeClosed?
+GET /v1/stores/:id                — store + featuredProducts (≤20) + categories[]
+GET /v1/stores/:id/products       ?q? &category? &page? &limit?
+```
+
+**Routing trick worth knowing.** Public and owner routes share the
+`/v1/stores` prefix. `storesPublicRouter` is mounted FIRST and starts with
+a guard middleware that calls `next("router")` whenever `req.path` starts
+with `/me` (case-insensitive). That exits the public router entirely so
+the owner-side `storesRouter` (which gates on `requireAuth +
+requireRole(OWNER)`) handles `/me`, `/me/products`, `/me/coupons`, etc.
+Without that guard the `/:id` wildcard route shadows `/me`, and strict
+zod validation on `storeProductsQuerySchema` rejects owner-only query
+params like `includeInactive` BEFORE the controller can fall through.
+
+**Public view narrowing.** Service-layer types `StorePublicView` and
+`ProductPublicView` deliberately drop fields that shouldn't be public:
+`ownerId`, `isActive`, `updatedAt` on stores; `isActive`, `searchAliases`,
+`searchVector`, `isPromoted`, `promotedUntil` on products. Phone IS kept —
+kirana stores advertise their phone publicly. `isActive=true` is enforced
+in every read path (including the `includeClosed=true` branch of /nearby,
+which only flips `isOpen`).
+
+**PostGIS query shape.** `listNearbyStores` uses `ST_DWithin(s.location,
+ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography, radiusMeters)` for
+the index-supported filter, and `ROUND(ST_Distance(...))::int` to project
+the distance. The GiST index `Store_location_gist_idx` (Phase 1) handles
+the spatial filter; isActive/isOpen are non-indexed post-filters but
+spatial selectivity dominates. Order is `(distanceMeters ASC, id ASC)`.
+
+**Page-based pagination** (page 1..50, limit 1..100). Cursor pagination
+across a derived `distanceMeters` column would be brittle; OFFSET is
+acceptable for kirana scale. Same on `/:id/products` for sortability
+across the composite `(isFeatured DESC, featuredOrder ASC NULLS LAST,
+name ASC, id ASC)` order. See "Deferred items" below for the perf
+trade-offs.
+
+**Tests.** `apps/backend/tests/discovery.test.ts` — 28 cases. To avoid
+seeded stores at `(12.9116, 77.6473)` and `(12.9352, 77.6245)` (both in
+HSR / Koramangala) leaking into geo-ordering and pagination assertions,
+the order/pagination tests use isolated coords (Cochin 10.0,75.0 and
+Chennai 13.082,80.27 — no seed data anywhere near those).
 
 ---
 
@@ -288,6 +338,37 @@ seed dataset hides them. Defer to Phase 13 hardening.
    index can satisfy this. OFFSET pagination gets slower per page. Fix:
    bound candidate set per leg (top 500), then score+sort the bounded set.
    Cursor over (score, id) for deep pagination.
+
+### From the Phase 5 reviewer-perf audit (discovery endpoints)
+
+Two HIGH-impact findings deferred to Phase 13 — both are bounded-acceptable
+at kirana scale (<500 products/store, <2000 stores per /nearby query) but
+will need attention if any store grows past ~5k products or any region
+crosses ~10k stores.
+
+1. **`listStoreProducts` orderBy can't use any existing index.** The order
+   `(isFeatured DESC, featuredOrder ASC NULLS LAST, name ASC, id ASC)`
+   forces a full sort of every store's catalog on every page request.
+   At <500 products/store this is fine. At 10k+ products, OFFSET 4900
+   LIMIT 100 sorts ~10k rows and discards 4900 every page. Fix: add a
+   composite index `(storeId, isActive, isAvailable, isFeatured DESC,
+   featuredOrder ASC, name ASC, id ASC)` OR switch to keyset pagination.
+   File: `apps/backend/src/modules/stores/stores.service.ts` (the non-q
+   branch of `listStoreProducts`).
+2. **Featured-products `createdAt` tiebreak isn't in the index.** Cheap
+   at MAX_FEATURED_PRODUCTS=20 (top-N heap sort over a handful of rows),
+   but extend `Product_storeId_isFeatured_featuredOrder_idx` to include
+   `createdAt DESC` if featured counts grow into the hundreds per store.
+   File: same `getStorePublic` featured query.
+
+Inline fixes applied before commit (no defer):
+- LOW — case-sensitive `/me` router guard. Fixed: lowercase the
+  comparison so `/Me`, `/ME` etc. still fall through to the owner router
+  rather than returning a confusing 404 from public code paths.
+- MED — 4 serial Neon roundtrips in `getStorePublic`. Fixed:
+  store + featured + groupBy fired in parallel via `Promise.all`,
+  category lookup remains sequential (depends on groupBy result). Saves
+  ~15-30ms per store-detail render.
 
 ### From the Phase 4.3 reviewer-authz audit
 

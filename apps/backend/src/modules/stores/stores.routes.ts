@@ -7,14 +7,62 @@ import { productsRouter } from "../products/products.routes.js"
 import * as controller from "./stores.controller.js"
 import {
   createStoreBodySchema,
+  nearbyQuerySchema,
   openToggleBodySchema,
+  storeIdParamSchema,
+  storeProductsQuerySchema,
   updateStoreBodySchema,
 } from "./stores.schemas.js"
+
+// --- Phase 5: public discovery -----------------------------------------
+
+/**
+ * Public, anonymous-allowed discovery routes. Mounted at /v1/stores BEFORE
+ * the owner-side router (below) so explicit GETs handle their paths first.
+ *
+ * /me fall-through: the owner storesRouter sits behind this one on the SAME
+ * prefix. Without the guard below, the `/:id` wildcard would shadow `/me`
+ * and Express would dispatch /v1/stores/me/* to this router — where strict
+ * validation on `storeProductsQuerySchema` would reject owner-only query
+ * params like `includeInactive`. `next("router")` exits this router
+ * entirely so /me/* falls through to the owner mount.
+ */
+export const storesPublicRouter: Router = Router()
+
+storesPublicRouter.use((req, _res, next) => {
+  // Lower-case the comparison so /Me, /ME etc. still fall through (Express
+  // routing is case-sensitive by default; we don't want to give a friendly
+  // 404 from public code paths for a typo'd /me request).
+  const path = req.path.toLowerCase()
+  if (path === "/me" || path.startsWith("/me/")) {
+    return next("router")
+  }
+  next()
+})
+
+storesPublicRouter.get(
+  "/nearby",
+  validate({ query: nearbyQuerySchema }),
+  controller.listNearby,
+)
+storesPublicRouter.get(
+  "/:id/products",
+  validate({ params: storeIdParamSchema, query: storeProductsQuerySchema }),
+  controller.listPublicProducts,
+)
+storesPublicRouter.get(
+  "/:id",
+  validate({ params: storeIdParamSchema }),
+  controller.getPublic,
+)
+
+// --- Owner self-service ------------------------------------------------
 
 /**
  * Owner-side store routes. All endpoints under /v1/stores/me require an
  * approved OWNER. requireAuth handles approval (rejects with 403 if not
- * approved). Public discovery routes live in Phase 5 (mounted separately).
+ * approved). Phase 5 added storesPublicRouter above; both are mounted on
+ * /v1/stores in app.ts (public first, owner second).
  */
 export const storesRouter: Router = Router()
 

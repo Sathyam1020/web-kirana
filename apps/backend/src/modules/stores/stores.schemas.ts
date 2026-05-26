@@ -71,3 +71,48 @@ export const openToggleBodySchema = z.strictObject({
   isOpen: z.boolean(),
 })
 export type OpenToggleBody = z.infer<typeof openToggleBodySchema>
+
+// --- Phase 5: public discovery -----------------------------------------
+
+/**
+ * GET /v1/stores/nearby — public, anonymous-allowed. Geo filter is required:
+ * lat + lng, with an optional radiusMeters (default 5km). includeClosed flips
+ * the isOpen filter; isActive=true is ALWAYS enforced server-side regardless.
+ */
+export const nearbyQuerySchema = z.strictObject({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  radiusMeters: z.coerce.number().int().min(500).max(50_000).optional().default(5000),
+  page: z.coerce.number().int().min(1).max(50).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(30),
+  // Query strings are strings; accept "true"/"false" and coerce.
+  includeClosed: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+})
+export type NearbyQuery = z.infer<typeof nearbyQuerySchema>
+
+/**
+ * Used by GET /v1/stores/:id and GET /v1/stores/:id/products. The controller
+ * short-circuits with next() when id === "me" so the owner-side router can
+ * take over for that path — without that, /:id would shadow /me.
+ */
+export const storeIdParamSchema = z.strictObject({
+  id: z.string().min(1).max(40),
+})
+export type StoreIdParam = z.infer<typeof storeIdParamSchema>
+
+/**
+ * GET /v1/stores/:id/products — public product list scoped to a single store.
+ * When `q` is present, the controller delegates to the search service so
+ * ranking matches the public /v1/search/products endpoint. Otherwise it's a
+ * straight prisma query with featured pins surfacing first.
+ */
+export const storeProductsQuerySchema = z.strictObject({
+  q: z.string().trim().min(1).max(100).optional(),
+  category: z.string().min(1).max(40).optional(),
+  page: z.coerce.number().int().min(1).max(50).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(30),
+})
+export type StoreProductsQuery = z.infer<typeof storeProductsQuerySchema>
