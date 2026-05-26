@@ -53,7 +53,8 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 5     | Discovery — PostGIS /stores/nearby + store detail                  | ⏳ pending     |           |
 | 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
-| 8     | Order lifecycle state machine (accept/reject/modify/advance/cancel)| ⏳ pending     |           |
+| 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
+| 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
 | 9     | Socket.IO real-time (rooms, handshake auth)                        | ⏳ pending     |           |
 | 10    | Notifications — WhatsApp Cloud API + web-push + webhook            | ⏳ pending     |           |
 | 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
@@ -67,6 +68,115 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 - `apps/customer` and `apps/owner` PWAs — not started; only `apps/web`
   (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
   comma-separated list so future frontends just append their origin.
+- **`apps/rider`** PWA — implied by the Phase 7.5 plan below.
+
+---
+
+## Phase 7.5 — Riders (locked design, not yet implemented)
+
+> Scope addition relative to the original build prompt (which said
+> "Out of scope: rider fleet"). User explicitly added this; design below
+> is locked. Implementation is deferred until Phase 7 ships and we have
+> orders to test rider participation against.
+
+### Flow
+1. **Rider self-signs-up** via existing `POST /v1/auth/signup` with
+   `role: "RIDER"`. Account created with `isApproved=false` and
+   `assignedStoreId=null`. No tokens issued (same shape as OWNER signup).
+2. **Rider applies to a store** via `POST /v1/riders/me/apply { storeId }` —
+   creates a `RiderApplication` row (`status=PENDING`). Unique constraint:
+   at most one PENDING application per rider at a time.
+3. **Owner reviews + decides** under `/v1/stores/me/rider-applications`:
+   - `GET ...` lists pending applications for the owner's store
+   - `POST .../:id/approve` → in one transaction: application → APPROVED,
+     `user.isApproved = true`, `user.assignedStoreId = ownerStoreId`,
+     `user.approvedById = ownerId`
+   - `POST .../:id/reject` → application → REJECTED (rider can re-apply
+     elsewhere; their account stays unapproved)
+4. **Rider logs in** to their store's order queue (`GET /v1/riders/me/orders`).
+
+### Order lifecycle with riders (Phase 8 extension)
+- Customer places → `PLACED`. Phase 9 broadcasts to owner AND every
+  active rider of the store.
+- **First acceptor wins** via optimistic UPDATE (`WHERE status = PLACED`).
+  Sets `Order.handlerId = acceptor.userId`. Status → `ACCEPTED`.
+- Other riders get a "claimed by someone else" socket event so their
+  toast clears.
+- Handler (owner or rider) marks `OUT_FOR_DELIVERY`, then `DELIVERED` +
+  `paymentStatus = COLLECTED`.
+- **Reassignment escape hatch** (owner-only):
+  `POST /v1/stores/me/orders/:id/reassign { newHandlerId }` — used when
+  a rider can't finish a delivery (bike breaks, abandons, etc.).
+- **Rider CANNOT reject.** Only the owner rejects an order. Riders can
+  UN-CLAIM before OUT_FOR_DELIVERY (puts it back in the broadcast queue).
+
+### Schema additions (one additive migration)
+```prisma
+// Role enum:        add RIDER
+// ActorType enum:   add RIDER
+// User model:
+   assignedStoreId  String?   // FK → Store, onDelete: SetNull
+   assignedStore    Store?    @relation("RidersByStore", ...)
+// Order model:
+   handlerId        String?   // FK → User, onDelete: SetNull
+   handler          User?     @relation("OrderHandledBy", ...)
+// New model:
+model RiderApplication {
+  id           String   @id @default(cuid())
+  riderId      String
+  rider        User     @relation(...)
+  storeId      String
+  store        Store    @relation(...)
+  status       RiderApplicationStatus @default(PENDING)
+  decidedById  String?
+  decidedBy    User?    @relation("AppDecisions", ...)
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+  @@unique([riderId, status]) // one PENDING max
+}
+enum RiderApplicationStatus { PENDING, APPROVED, REJECTED }
+```
+
+### Endpoint surface
+```
+Public (existing):
+  POST   /v1/auth/signup { role: RIDER }     accepts RIDER role
+Rider self-service (requireAuth + requireRole(RIDER)):
+  GET    /v1/riders/me
+  POST   /v1/riders/me/apply { storeId }
+  GET    /v1/riders/me/orders                (orders for assigned store)
+  POST   /v1/riders/me/orders/:id/claim      (Phase 8)
+  POST   /v1/riders/me/orders/:id/unclaim    (Phase 8)
+  POST   /v1/riders/me/orders/:id/advance    (Phase 8)
+Owner (requireAuth + requireRole(OWNER) + requireOwnStore):
+  GET    /v1/stores/me/rider-applications
+  POST   /v1/stores/me/rider-applications/:id/approve
+  POST   /v1/stores/me/rider-applications/:id/reject
+  GET    /v1/stores/me/riders                (active + deactivated)
+  PATCH  /v1/stores/me/riders/:id            (deactivate / reactivate)
+  POST   /v1/stores/me/orders/:id/reassign   (Phase 8, owner-only escape hatch)
+```
+
+### Design decisions locked
+- **One rider per store** in V1. Switching stores = owner-A deactivates,
+  rider applies fresh to owner-B. Future: many-to-many `RiderStore`.
+- **Broadcast-and-first-accept** (not owner-then-rider). The handlerId
+  field tells you who's driving each order; OrderStatusHistory.actorType
+  carries CUSTOMER / OWNER / RIDER / SYSTEM for audit.
+- **Handoff between owner and rider is verbal**, not modeled. If owner
+  accepts and rider physically picks up the bag, owner marks
+  OUT_FOR_DELIVERY when handing off. Edge case: rider accepts but bag
+  isn't packed yet → they wait at the counter. The owner being right
+  there makes this fine for the kirana use case.
+- **Rider account creation:** rider sets their own password at signup.
+  No owner-creates-rider flow, no temporary-password sharing.
+- **Notifications fairness:** "claimed by someone else" event fires only
+  via socket (Phase 9). Don't WhatsApp/push the losers — that's spam.
+
+### When this lands
+After Phase 7 (orders exist) and before Phase 8 (state machine). Phase 8
+then implements the broadcast-and-first-accept logic with rider
+participation baked in, rather than retrofitting later.
 
 ---
 
