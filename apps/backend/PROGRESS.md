@@ -51,7 +51,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
 | 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
 | 5     | Discovery — PostGIS /stores/nearby + store detail + store products | ✅ done        | `9771c78` |
-| 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
+| 6     | Customer addresses CRUD                                            | ✅ done        | _pending_ |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
 | 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
@@ -119,6 +119,43 @@ seeded stores at `(12.9116, 77.6473)` and `(12.9352, 77.6245)` (both in
 HSR / Koramangala) leaking into geo-ordering and pagination assertions,
 the order/pagination tests use isolated coords (Cochin 10.0,75.0 and
 Chennai 13.082,80.27 — no seed data anywhere near those).
+
+---
+
+## Phase 6 — Customer addresses (notes for future sessions)
+
+CUSTOMER-only address book at `/v1/addresses`. Used by the customer PWA
+and by Phase 7 order placement (snapshots `deliveryLine1/2/city/pincode/
+lat/lng` into Order at place time). No schema migration — the `Address`
+model + the partial unique index `Address_one_default_per_customer`
+(`UNIQUE (customerId) WHERE isDefault=true`) shipped in Phase 1's init.
+
+**Lifecycle split.** `PATCH /v1/addresses/:id` edits fields and STRICTLY
+rejects `isDefault` (400). Switching default goes through the dedicated
+`POST /v1/addresses/:id/default` — atomic clear-then-set inside a
+transaction. Mirrors the `PATCH /stores/me` vs. `PATCH /stores/me/open`
+split. Keeps the flip-then-clear semantics in exactly one code path.
+
+**First-address auto-default.** `createAddress` overrides `input.isDefault`
+to `true` when `count === 0`. Avoids the "I added an address but
+checkout says no default" UX trap. Documented and tested.
+
+**Delete-the-default promotion.** If the deleted row was the default and
+siblings exist, the same transaction promotes the most-recently-created
+sibling to default. If the deleted row was the only address, no
+promotion (no default needed). The customer never lands in the "rows but
+no default" state by API design.
+
+**Cap: 20 per customer.** New `MAX_ADDRESSES_REACHED` error code on the
+shared package; new `MaxAddressesReachedError` (409) in lib/errors. The
+cap is bounded for enumeration + render budget on the customer PWA —
+kirana customers don't realistically need more.
+
+**Tests.** 25 cases in `tests/addresses.test.ts`. The cap test seeds the
+prior 20 rows via `prisma.address.createMany` (single Neon round-trip)
+instead of 20 sequential POSTs — Neon RTT × 20 was overrunning the test
+budget. The cap check in the service doesn't depend on how the prior
+rows got there.
 
 ---
 

@@ -90,6 +90,16 @@ export class OutOfServiceAreaError extends AppError {
 }
 
 /**
+ * Phase 6: per-customer address-book cap reached. Hard ceiling of 20 keeps
+ * enumeration and rendering cost bounded for the customer PWA address book.
+ */
+export class MaxAddressesReachedError extends AppError {
+  constructor(message = "You already have the maximum number of saved addresses") {
+    super(409, ErrorCode.MAX_ADDRESSES_REACHED, message)
+  }
+}
+
+/**
  * Phase 7: stale price / unavailable product / store-closed at order placement.
  * `details` carries the corrected cart so the client can re-confirm.
  */

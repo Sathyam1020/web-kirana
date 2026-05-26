@@ -35,6 +35,19 @@ export type DomainEvent =
       actorId: string
       fields: string[]
     }
+  | { type: "address.created"; addressId: string; customerId: string }
+  | {
+      type: "address.updated"
+      addressId: string
+      customerId: string
+      fields: string[]
+    }
+  | { type: "address.deleted"; addressId: string; customerId: string }
+  | {
+      type: "address.default_changed"
+      addressId: string
+      customerId: string
+    }
 
 type EventType = DomainEvent["type"]
 type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>

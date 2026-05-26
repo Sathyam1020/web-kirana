@@ -17,6 +17,7 @@ export const ErrorCode = {
   CART_CHANGED: "CART_CHANGED",
   INVALID_TRANSITION: "INVALID_TRANSITION",
   IDEMPOTENCY_REPLAY: "IDEMPOTENCY_REPLAY",
+  MAX_ADDRESSES_REACHED: "MAX_ADDRESSES_REACHED",
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

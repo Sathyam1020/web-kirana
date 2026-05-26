@@ -8,6 +8,7 @@ import { corsMiddleware } from "./middleware/cors.js"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js"
 import { globalRateLimiter } from "./middleware/rate-limit.js"
 import { httpLogger } from "./middleware/request-id.js"
+import { addressesRouter } from "./modules/addresses/addresses.routes.js"
 import { adminRouter } from "./modules/admin/admin.routes.js"
 import { authRouter } from "./modules/auth/auth.routes.js"
 import { categoriesPublicRouter } from "./modules/categories/categories.routes.js"
@@ -51,6 +52,7 @@ export function buildApp(): Express {
   const v1 = Router()
   v1.use("/auth", authRouter)
   v1.use("/admin", adminRouter)
+  v1.use("/addresses", addressesRouter)
   v1.use("/categories", categoriesPublicRouter)
   v1.use("/coupons", couponsPublicRouter)
   v1.use("/search", searchRouter)
