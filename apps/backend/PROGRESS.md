@@ -49,7 +49,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 3     | Auth (signup/login/refresh/logout/me) + admin approval + CSRF      | ✅ done        | `b432f90` |
 | 4.1   | Stores + products + categories CRUD + event bus                    | ✅ done        | `c09f922` |
 | 4.2   | Production search (pg_trgm + tsvector + aliases + hybrid scoring)  | ✅ done        | `6e33e9d` |
-| 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | (next)    |
+| 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
 | 5     | Discovery — PostGIS /stores/nearby + store detail                  | ⏳ pending     |           |
 | 6     | Customer addresses CRUD                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
