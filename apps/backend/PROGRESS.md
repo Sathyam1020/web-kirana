@@ -52,7 +52,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
 | 5     | Discovery — PostGIS /stores/nearby + store detail + store products | ✅ done        | `9771c78` |
 | 6     | Customer addresses CRUD                                            | ✅ done        | `1195c46` |
-| 6.5   | Auth replacement — better-auth (cookie sessions; fixes refresh bug)| ✅ done        | _pending_ |
+| 6.5   | Auth replacement — better-auth (cookie sessions; fixes refresh bug)| ✅ done        | `b76803d` |
 | 6.6   | Taxonomy upgrade — Department/Category/Subcategory + product re-FK | ⏳ pending     |           |
 | 6.7   | Cloudinary signed uploads                                          | ⏳ pending     |           |
 | 6.8   | Product-level discounts                                            | ⏳ pending     |           |
