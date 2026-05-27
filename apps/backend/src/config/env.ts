@@ -23,23 +23,22 @@ const EnvSchema = z
           .filter((origin) => origin.length > 0),
       ),
 
-    // --- Auth (Phase 3) ----------------------------------------------------
-    // Used for HS256 signing of access JWTs. Minimum 32 bytes of secret; rotate
-    // by deploying a new value (all live access tokens become invalid).
-    JWT_ACCESS_SECRET: z.string().min(32),
-    JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
-    REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
-    // Optional cookie scope for cross-subdomain prod setups (e.g.,
-    // `.kirana.com` so api.kirana.com sets a cookie usable by
-    // customer.kirana.com). Leave unset in dev.
+    // --- Auth (Phase 6.5: better-auth) -------------------------------------
+    // Single shared secret used by better-auth for session signing + CSRF
+    // tokens. Rotate by deploying a new value (existing sessions invalidate).
+    BETTER_AUTH_SECRET: z.string().min(32),
+    // Origin where this auth server is hosted. Used by better-auth to set
+    // cookie domain + validate trusted origins. http://localhost:4000 in dev.
+    BETTER_AUTH_URL: z.string().url(),
+    // Optional cookie scope for cross-subdomain prod (e.g. `.kirana.com`).
     AUTH_COOKIE_DOMAIN: z.string().optional(),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET.length < 48) {
+    if (env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET.length < 48) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["JWT_ACCESS_SECRET"],
-        message: "Production JWT_ACCESS_SECRET must be at least 48 chars",
+        path: ["BETTER_AUTH_SECRET"],
+        message: "Production BETTER_AUTH_SECRET must be at least 48 chars",
       })
     }
   })

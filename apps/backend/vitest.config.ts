@@ -12,6 +12,10 @@ export default defineConfig({
     globals: false,
     env: {
       NODE_ENV: "test",
+      // Wider than the per-request operation cost (~1-2s on Neon) so the
+      // within-grace tests pass deterministically, but short enough that
+      // the outside-grace test can wait it out without a slow sleep.
+      REFRESH_TOKEN_GRACE_MS: "5000",
     },
     testTimeout: 30_000,
     hookTimeout: 30_000,

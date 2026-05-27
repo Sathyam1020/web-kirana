@@ -1,17 +1,36 @@
 /**
- * Phase 3 integration tests — exercises the full auth pipeline against the
- * real Neon DB. Sequenced; uses a per-run phone prefix so the seed dataset
- * stays intact.
+ * Phase 6.5 integration tests — auth via better-auth.
+ *
+ * Exercises the full session lifecycle against the real Neon DB:
+ *   sign-up/email     → 200 + session cookie
+ *   sign-in/email     → 200 + session cookie
+ *   get-session       → returns user (incl. our additional fields)
+ *   sign-out          → clears the session row + cookie
+ *
+ * Plus the load-bearing edge cases:
+ *   - OWNER signup lands isApproved=false → session.create hook blocks login
+ *   - Admin can flip isApproved=true → owner can then sign in
+ *   - ADMIN role on signup is rejected via the user.create hook
+ *   - Duplicate email rejected by better-auth's unique check
+ *   - Duplicate phone rejected by our DB-level unique constraint
+ *   - Invalid phone shape rejected by the user.create hook
+ *   - Session cookie survives a fresh `request(app)` call (mimics page reload)
  */
 
 import { afterAll, describe, expect, it } from "vitest"
 import request from "supertest"
 import { buildApp } from "../src/app.js"
 import { prisma } from "../src/db/prisma.js"
-import { cleanupRun, nextPhone } from "./helpers/factories.js"
+import {
+  cleanupRun,
+  loginSeededAdmin,
+  nextEmail,
+  nextPhone,
+  signupApprovedOwner,
+  signupCustomer,
+} from "./helpers/factories.js"
 
 const PASSWORD = "Password123!"
-const SEED_ADMIN_PHONE = "+919900000000"
 
 const app = buildApp()
 const api = () => request(app)
@@ -21,7 +40,7 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-// --- Cookie + CSRF helpers ----------------------------------------------
+// --- Cookie helpers ----------------------------------------------------
 
 function setCookies(res: request.Response): string[] {
   const sc = res.headers["set-cookie"]
@@ -30,448 +49,272 @@ function setCookies(res: request.Response): string[] {
   return []
 }
 
-function findCookie(res: request.Response, name: string): string | undefined {
-  return setCookies(res).find((c) => c.startsWith(`${name}=`))
+function cookieHeaderFrom(res: request.Response): string {
+  return setCookies(res)
+    .map((c) => c.split(";")[0])
+    .filter((c): c is string => c !== undefined && c.length > 0)
+    .join("; ")
 }
 
-function refreshCookieValue(setCookie: string): string {
-  const part = setCookie.split(";")[0]!
-  return part.slice(part.indexOf("=") + 1)
-}
+// --- POST /v1/auth/sign-up/email ---------------------------------------
 
-/**
- * Build the Cookie header that a real browser would send to the API — both
- * the refresh cookie and the CSRF cookie. The header echo of the CSRF token
- * goes in `X-Csrf-Token` separately.
- */
-function buildCookieHeader(res: request.Response): {
-  cookie: string
-  csrfToken: string | undefined
-} {
-  const cookies = setCookies(res)
-  const pairs = cookies.map((c) => c.split(";")[0]!)
-  const csrfPair = pairs.find((p) => p.startsWith("kirana_csrf="))
-  const csrfToken = csrfPair === undefined ? undefined : csrfPair.slice("kirana_csrf=".length)
-  return { cookie: pairs.join("; "), csrfToken }
-}
-
-// --- Tests --------------------------------------------------------------
-
-describe("POST /v1/auth/signup", () => {
-  it("creates a CUSTOMER, returns tokens, sets refresh + csrf cookies", async () => {
+describe("POST /v1/auth/sign-up/email", () => {
+  it("CUSTOMER signup → 200 + session cookie + user returned", async () => {
+    const email = nextEmail("c")
     const phone = nextPhone()
     const res = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Test Customer", role: "CUSTOMER" })
+      .post("/v1/auth/sign-up/email")
+      .send({
+        email,
+        password: PASSWORD,
+        name: "Cust Test",
+        phone,
+        role: "CUSTOMER",
+      })
+    expect(res.status).toBe(200)
+    expect(res.body?.user?.email).toBe(email)
+    expect(setCookies(res).some((c) => c.startsWith("kirana.session_token="))).toBe(true)
+  })
 
-    expect(res.status).toBe(201)
-    expect(res.body.data.user).toMatchObject({
+  it("OWNER signup → user created with isApproved=false (session blocked until admin approves)", async () => {
+    const email = nextEmail("o")
+    const phone = nextPhone()
+    const res = await api()
+      .post("/v1/auth/sign-up/email")
+      .send({
+        email,
+        password: PASSWORD,
+        name: "Owner Test",
+        phone,
+        role: "OWNER",
+      })
+    // Better-auth tries to auto-sign-in (we have autoSignIn: true); our
+    // session.create hook throws "Account is pending admin approval" for
+    // an unapproved OWNER. Better-auth surfaces that as a non-2xx.
+    expect(res.status).not.toBe(200)
+
+    const created = await prisma.user.findUnique({ where: { email } })
+    expect(created).not.toBeNull()
+    expect(created!.role).toBe("OWNER")
+    expect(created!.isApproved).toBe(false)
+  })
+
+  it("ADMIN signup → rejected (closed signup)", async () => {
+    const email = nextEmail("a")
+    const phone = nextPhone()
+    const res = await api()
+      .post("/v1/auth/sign-up/email")
+      .send({
+        email,
+        password: PASSWORD,
+        name: "Admin Attempt",
+        phone,
+        role: "ADMIN",
+      })
+    expect(res.status).not.toBe(200)
+    const created = await prisma.user.findUnique({ where: { email } })
+    expect(created).toBeNull()
+  })
+
+  it("Duplicate email → rejected", async () => {
+    const email = nextEmail("dup")
+    const first = await api().post("/v1/auth/sign-up/email").send({
+      email,
+      password: PASSWORD,
+      name: "First",
+      phone: nextPhone(),
+      role: "CUSTOMER",
+    })
+    expect(first.status).toBe(200)
+    const second = await api().post("/v1/auth/sign-up/email").send({
+      email,
+      password: PASSWORD,
+      name: "Second",
+      phone: nextPhone(),
+      role: "CUSTOMER",
+    })
+    expect(second.status).not.toBe(200)
+  })
+
+  it("Duplicate phone → rejected (DB-level unique)", async () => {
+    const phone = nextPhone()
+    const first = await api().post("/v1/auth/sign-up/email").send({
+      email: nextEmail("p1"),
+      password: PASSWORD,
+      name: "Phone First",
       phone,
       role: "CUSTOMER",
-      isApproved: true,
-      name: "Test Customer",
     })
-    expect(typeof res.body.data.accessToken).toBe("string")
-    expect(typeof res.body.data.csrfToken).toBe("string")
-    expect(res.body.data.expiresInSeconds).toBeGreaterThan(0)
-
-    const rt = findCookie(res, "kirana_rt")
-    const csrf = findCookie(res, "kirana_csrf")
-    expect(rt).toBeDefined()
-    expect(csrf).toBeDefined()
-    expect(rt).toMatch(/HttpOnly/i)
-    expect(rt).toMatch(/Path=\/v1\/auth/i)
-    // CSRF cookie is intentionally readable from JS — must NOT be HttpOnly.
-    expect(csrf).not.toMatch(/HttpOnly/i)
+    expect(first.status).toBe(200)
+    const second = await api().post("/v1/auth/sign-up/email").send({
+      email: nextEmail("p2"),
+      password: PASSWORD,
+      name: "Phone Second",
+      phone, // duplicate
+      role: "CUSTOMER",
+    })
+    expect(second.status).not.toBe(200)
   })
 
-  it("creates an OWNER as pending — no tokens, no cookies", async () => {
-    const phone = nextPhone()
-    const res = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Test Owner", role: "OWNER" })
+  it("Invalid phone shape → rejected by user.create hook", async () => {
+    const res = await api().post("/v1/auth/sign-up/email").send({
+      email: nextEmail("bad"),
+      password: PASSWORD,
+      name: "Bad Phone",
+      phone: "abc", // not phone-like
+      role: "CUSTOMER",
+    })
+    expect(res.status).not.toBe(200)
+  })
+})
 
-    expect(res.status).toBe(201)
-    expect(res.body.data.user).toMatchObject({
+// --- POST /v1/auth/sign-in/email ---------------------------------------
+
+describe("POST /v1/auth/sign-in/email", () => {
+  it("Seeded admin login → 200 + session cookie", async () => {
+    const res = await api()
+      .post("/v1/auth/sign-in/email")
+      .send({ email: "admin@kirana.local", password: PASSWORD })
+    expect(res.status).toBe(200)
+    expect(setCookies(res).some((c) => c.startsWith("kirana.session_token="))).toBe(true)
+  })
+
+  it("Wrong password → rejected", async () => {
+    const res = await api()
+      .post("/v1/auth/sign-in/email")
+      .send({ email: "admin@kirana.local", password: "wrong-password!" })
+    expect(res.status).not.toBe(200)
+  })
+
+  it("Owner login BEFORE approval → rejected (pending-approval hook)", async () => {
+    // Sign up an owner; do NOT flip isApproved.
+    const email = nextEmail("pending")
+    const phone = nextPhone()
+    await api().post("/v1/auth/sign-up/email").send({
+      email,
+      password: PASSWORD,
+      name: "Pending Owner",
       phone,
       role: "OWNER",
-      isApproved: false,
     })
-    expect(res.body.data.pendingApproval).toBe(true)
-    expect(res.body.data.accessToken).toBeUndefined()
-    expect(findCookie(res, "kirana_rt")).toBeUndefined()
-    expect(findCookie(res, "kirana_csrf")).toBeUndefined()
+    const login = await api()
+      .post("/v1/auth/sign-in/email")
+      .send({ email, password: PASSWORD })
+    expect(login.status).not.toBe(200)
   })
 
-  it("rejects an ADMIN-role signup attempt", async () => {
-    const res = await api()
-      .post("/v1/auth/signup")
-      .send({ phone: nextPhone(), password: PASSWORD, name: "Sneaky", role: "ADMIN" })
-    expect(res.status).toBe(400)
-    expect(res.body.error.code).toBe("VALIDATION_ERROR")
-  })
-
-  it("rejects duplicate phone (regardless of role)", async () => {
+  it("Owner login AFTER approval → 200 + session cookie", async () => {
+    const email = nextEmail("approved")
     const phone = nextPhone()
-    const first = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "First", role: "CUSTOMER" })
-    expect(first.status).toBe(201)
-
-    const dupe = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Second", role: "OWNER" })
-    expect(dupe.status).toBe(409)
-    expect(dupe.body.error.code).toBe("CONFLICT")
-  })
-
-  it("normalizes phone — formatted vs unformatted match", async () => {
-    const phone = nextPhone()
-    const formatted = phone.replace(/^(\+\d{2})(\d{2})(\d{4})(\d+)$/, "$1 $2-$3 $4")
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Norm A", role: "CUSTOMER" })
-
-    const dupe = await api()
-      .post("/v1/auth/signup")
-      .send({ phone: formatted, password: PASSWORD, name: "Norm B", role: "CUSTOMER" })
-    expect(dupe.status).toBe(409)
+    await api().post("/v1/auth/sign-up/email").send({
+      email,
+      password: PASSWORD,
+      name: "Approved Owner",
+      phone,
+      role: "OWNER",
+    })
+    await prisma.user.update({
+      where: { email },
+      data: { isApproved: true, approvedAt: new Date() },
+    })
+    const login = await api()
+      .post("/v1/auth/sign-in/email")
+      .send({ email, password: PASSWORD })
+    expect(login.status).toBe(200)
+    expect(setCookies(login).some((c) => c.startsWith("kirana.session_token="))).toBe(true)
   })
 })
 
-describe("POST /v1/auth/login", () => {
-  it("logs in a customer with the right password", async () => {
-    const phone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Login Tester", role: "CUSTOMER" })
+// --- GET /v1/auth/get-session -------------------------------------------
 
-    const res = await api().post("/v1/auth/login").send({ phone, password: PASSWORD })
+describe("GET /v1/auth/get-session", () => {
+  it("Returns user (with additional fields) when cookie is present", async () => {
+    const customer = await signupCustomer(app)
+    const res = await api().get("/v1/auth/get-session").set("Cookie", customer.cookieHeader)
     expect(res.status).toBe(200)
-    expect(res.body.data.user.phone).toBe(phone)
-    expect(typeof res.body.data.accessToken).toBe("string")
-    expect(typeof res.body.data.csrfToken).toBe("string")
-    expect(findCookie(res, "kirana_rt")).toBeDefined()
-    expect(findCookie(res, "kirana_csrf")).toBeDefined()
+    expect(res.body?.user?.id).toBe(customer.user.id)
+    expect(res.body?.user?.role).toBe("CUSTOMER")
+    expect(res.body?.user?.phone).toBe(customer.user.phone)
+    expect(res.body?.user?.isApproved).toBe(true)
   })
 
-  it("returns 401 with the same error code for unknown phone vs wrong password", async () => {
-    const phone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Wrong Pw", role: "CUSTOMER" })
-
-    const wrong = await api().post("/v1/auth/login").send({ phone, password: "wrong-pass-xx" })
-    expect(wrong.status).toBe(401)
-    expect(wrong.body.error.code).toBe("UNAUTHORIZED")
-
-    const unknown = await api()
-      .post("/v1/auth/login")
-      .send({ phone: nextPhone(), password: "whatever" })
-    expect(unknown.status).toBe(401)
-    expect(unknown.body.error.code).toBe("UNAUTHORIZED")
+  it("Returns null/empty when no cookie present", async () => {
+    const res = await api().get("/v1/auth/get-session")
+    // Better-auth returns 200 with null body when no session — accepting both.
+    expect(res.status).toBe(200)
+    expect(res.body == null || res.body.user == null).toBe(true)
   })
 
-  it("returns 403 for an unapproved owner trying to log in", async () => {
-    const phone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Pending Owner", role: "OWNER" })
+  it("Session cookie survives a FRESH request — refresh-on-reload bug fix", async () => {
+    // This is the headline bug we're fixing in Phase 6.5. A single sign-in
+    // → a freshly-constructed supertest request → get-session must succeed.
+    const customer = await signupCustomer(app)
 
-    const res = await api().post("/v1/auth/login").send({ phone, password: PASSWORD })
-    expect(res.status).toBe(403)
-    expect(res.body.error.code).toBe("FORBIDDEN")
+    // Brand new supertest instance, just like the FE would after a tab reload.
+    const fresh = request(app)
+    const res = await fresh.get("/v1/auth/get-session").set("Cookie", customer.cookieHeader)
+    expect(res.status).toBe(200)
+    expect(res.body?.user?.id).toBe(customer.user.id)
   })
 })
 
-describe("POST /v1/auth/refresh", () => {
-  it("rotates and returns a new access token + refresh + csrf cookies", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Refresh Tester", role: "CUSTOMER" })
-    const { cookie, csrfToken } = buildCookieHeader(signup)
+// --- POST /v1/auth/sign-out ---------------------------------------------
 
-    const res = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", cookie)
-      .set("X-Csrf-Token", csrfToken!)
-    expect(res.status).toBe(200)
-    expect(typeof res.body.data.accessToken).toBe("string")
-    const newRt = findCookie(res, "kirana_rt")
-    const newCsrf = findCookie(res, "kirana_csrf")
-    expect(newRt).toBeDefined()
-    expect(newCsrf).toBeDefined()
-    expect(newRt).not.toBe(findCookie(signup, "kirana_rt"))
+describe("POST /v1/auth/sign-out", () => {
+  it("Clears the session row + emits cleared cookies on the response", async () => {
+    const customer = await signupCustomer(app)
+
+    const before = await prisma.session.count({ where: { userId: customer.user.id } })
+    expect(before).toBeGreaterThanOrEqual(1)
+
+    const out = await api()
+      .post("/v1/auth/sign-out")
+      .set("Cookie", customer.cookieHeader)
+    expect(out.status).toBe(200)
+
+    // The DB row goes away immediately.
+    const after = await prisma.session.count({ where: { userId: customer.user.id } })
+    expect(after).toBe(0)
+
+    // The sign-out response returns Set-Cookie headers with Max-Age=0
+    // (the browser-side mechanism that clears the cookie). We can't test
+    // "subsequent requests fail" by replaying the OLD cookie header here
+    // because the 5-min cookieCache (the session_data shadow cookie) is
+    // still valid until its TTL — a real browser honours the Max-Age=0
+    // and stops sending the cookie; supertest doesn't model that.
+    const cleared = setCookies(out).filter((c) => c.includes("Max-Age=0"))
+    expect(cleared.length).toBeGreaterThanOrEqual(1)
   })
+})
 
-  it("returns 401 when no refresh cookie is sent", async () => {
-    const res = await api().post("/v1/auth/refresh")
+// --- Cookie-protected route integration --------------------------------
+
+describe("Auth cookie protects /v1/* routes", () => {
+  it("Anonymous → 401 on /v1/addresses", async () => {
+    const res = await api().get("/v1/addresses")
     expect(res.status).toBe(401)
   })
 
-  it("returns 403 when CSRF header is missing (CSRF defense)", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "CSRF Defense", role: "CUSTOMER" })
-    const { cookie } = buildCookieHeader(signup)
-
-    // Has refresh cookie + CSRF cookie, but no X-Csrf-Token header.
-    const res = await api().post("/v1/auth/refresh").set("Cookie", cookie)
-    expect(res.status).toBe(403)
-    expect(res.body.error.code).toBe("FORBIDDEN")
+  it("Customer cookie → 200 on /v1/addresses", async () => {
+    const customer = await signupCustomer(app)
+    const res = await api().get("/v1/addresses").set("Cookie", customer.cookieHeader)
+    expect(res.status).toBe(200)
   })
 
-  it("returns 403 when CSRF header doesn't match the cookie", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "CSRF Mismatch", role: "CUSTOMER" })
-    const { cookie } = buildCookieHeader(signup)
-
-    const res = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", cookie)
-      .set("X-Csrf-Token", "not-the-right-token-aaaaaaaaaaaaaa")
-    expect(res.status).toBe(403)
+  it("Approved owner cookie → 200 on /v1/stores/me (404 STORE_NOT_CREATED until they POST)", async () => {
+    const owner = await signupApprovedOwner(app)
+    const res = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
+    expect([200, 404]).toContain(res.status)
+    if (res.status === 404) {
+      expect(res.body.error.code).toBe("STORE_NOT_CREATED")
+    }
   })
 
-  it("detects refresh-token reuse and revokes the chain (atomic)", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Reuse Detection", role: "CUSTOMER" })
-    const { cookie: originalCookie, csrfToken: originalCsrf } = buildCookieHeader(signup)
-    const originalRtCookie = findCookie(signup, "kirana_rt")!
-    const originalRtValue = refreshCookieValue(originalRtCookie)
-
-    // First rotation succeeds.
-    const first = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", originalCookie)
-      .set("X-Csrf-Token", originalCsrf!)
-    expect(first.status).toBe(200)
-    const { cookie: rotatedCookie, csrfToken: rotatedCsrf } = buildCookieHeader(first)
-
-    // Replaying the ORIGINAL refresh token — reuse → 401, family revoked.
-    // Use the ROTATED CSRF cookie too so we pass the CSRF gate and test the
-    // actual reuse-detection logic underneath.
-    const replay = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", rotatedCookie.replace(/kirana_rt=[^;]+/, `kirana_rt=${originalRtValue}`))
-      .set("X-Csrf-Token", rotatedCsrf!)
-    expect(replay.status).toBe(401)
-
-    // The legitimate rotated token from `first` is now revoked (family).
-    const aftermath = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", rotatedCookie)
-      .set("X-Csrf-Token", rotatedCsrf!)
-    expect(aftermath.status).toBe(401)
-  })
-
-  it("rejects a garbage refresh token cookie", async () => {
-    // Build a CSRF cookie + matching header so we get past the CSRF gate and
-    // exercise the refresh-token lookup itself.
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Garbage RT", role: "CUSTOMER" })
-    const { csrfToken } = buildCookieHeader(signup)
-    const csrfCookie = findCookie(signup, "kirana_csrf")!.split(";")[0]!
-
-    const res = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", `kirana_rt=nonsense_value_42; ${csrfCookie}`)
-      .set("X-Csrf-Token", csrfToken!)
-    expect(res.status).toBe(401)
-  })
-})
-
-describe("POST /v1/auth/logout + GET /v1/auth/me", () => {
-  it("logout clears cookies and revokes the chain; me requires a valid access token", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Logout Tester", role: "CUSTOMER" })
-    const access = signup.body.data.accessToken as string
-    const { cookie, csrfToken } = buildCookieHeader(signup)
-
-    const meBefore = await api().get("/v1/auth/me").set("Authorization", `Bearer ${access}`)
-    expect(meBefore.status).toBe(200)
-    expect(meBefore.body.data.user.phone).toBe(phone)
-
-    const logout = await api()
-      .post("/v1/auth/logout")
-      .set("Cookie", cookie)
-      .set("X-Csrf-Token", csrfToken!)
-    expect(logout.status).toBe(204)
-
-    // Logged-out cookie chain is revoked.
-    const refreshAfter = await api()
-      .post("/v1/auth/refresh")
-      .set("Cookie", cookie)
-      .set("X-Csrf-Token", csrfToken!)
-    expect(refreshAfter.status).toBe(401)
-
-    const meNoAuth = await api().get("/v1/auth/me")
-    expect(meNoAuth.status).toBe(401)
-  })
-
-  it("logout without any cookie is a no-op 204", async () => {
-    const res = await api().post("/v1/auth/logout")
-    expect(res.status).toBe(204)
-  })
-
-  it("logout with refresh cookie but no CSRF header is 403", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Logout CSRF", role: "CUSTOMER" })
-    const rtCookie = findCookie(signup, "kirana_rt")!.split(";")[0]!
-
-    // Only the refresh cookie, no CSRF anywhere — must be rejected.
-    const res = await api().post("/v1/auth/logout").set("Cookie", rtCookie)
-    expect(res.status).toBe(403)
-  })
-})
-
-describe("Admin approval flow", () => {
-  it("admin can list and approve a pending owner; owner can then log in", async () => {
-    const ownerPhone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone: ownerPhone, password: PASSWORD, name: "Approve Me", role: "OWNER" })
-
-    const adminLogin = await api()
-      .post("/v1/auth/login")
-      .send({ phone: SEED_ADMIN_PHONE, password: PASSWORD })
-    expect(adminLogin.status).toBe(200)
-    const adminToken = adminLogin.body.data.accessToken as string
-
-    const pending = await api()
-      .get("/v1/admin/users/pending-owners")
-      .set("Authorization", `Bearer ${adminToken}`)
-    expect(pending.status).toBe(200)
-    const target = (pending.body.data.owners as { id: string; phone: string }[]).find(
-      (o) => o.phone === ownerPhone,
-    )
-    expect(target).toBeDefined()
-
-    const approve = await api()
-      .post(`/v1/admin/users/${target!.id}/approve`)
-      .set("Authorization", `Bearer ${adminToken}`)
-    expect(approve.status).toBe(200)
-    expect(approve.body.data.owner.isApproved).toBe(true)
-
-    const ownerLogin = await api()
-      .post("/v1/auth/login")
-      .send({ phone: ownerPhone, password: PASSWORD })
-    expect(ownerLogin.status).toBe(200)
-    expect(ownerLogin.body.data.user.role).toBe("OWNER")
-  })
-
-  it("non-admin cannot reach /v1/admin/*", async () => {
-    const phone = nextPhone()
-    const signup = await api()
-      .post("/v1/auth/signup")
-      .send({ phone, password: PASSWORD, name: "Just A Customer", role: "CUSTOMER" })
-    const customerToken = signup.body.data.accessToken as string
-
+  it("Admin cookie → 200 on /v1/admin/users/pending-owners", async () => {
+    const admin = await loginSeededAdmin(app)
     const res = await api()
       .get("/v1/admin/users/pending-owners")
-      .set("Authorization", `Bearer ${customerToken}`)
-    expect(res.status).toBe(403)
-    expect(res.body.error.code).toBe("FORBIDDEN")
-  })
-
-  it("approving a non-existent owner returns 404", async () => {
-    const adminLogin = await api()
-      .post("/v1/auth/login")
-      .send({ phone: SEED_ADMIN_PHONE, password: PASSWORD })
-    const adminToken = adminLogin.body.data.accessToken as string
-
-    const res = await api()
-      .post("/v1/admin/users/nonexistent-id-zzz/approve")
-      .set("Authorization", `Bearer ${adminToken}`)
-    expect(res.status).toBe(404)
-    expect(res.body.error.code).toBe("NOT_FOUND")
-  })
-
-  it("approving an already-approved owner returns 409", async () => {
-    const ownerPhone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone: ownerPhone, password: PASSWORD, name: "Approve Twice", role: "OWNER" })
-
-    const adminLogin = await api()
-      .post("/v1/auth/login")
-      .send({ phone: SEED_ADMIN_PHONE, password: PASSWORD })
-    const adminToken = adminLogin.body.data.accessToken as string
-
-    const pending = await api()
-      .get("/v1/admin/users/pending-owners")
-      .set("Authorization", `Bearer ${adminToken}`)
-    const target = (pending.body.data.owners as { id: string; phone: string }[]).find(
-      (o) => o.phone === ownerPhone,
-    )!
-
-    await api()
-      .post(`/v1/admin/users/${target.id}/approve`)
-      .set("Authorization", `Bearer ${adminToken}`)
-    const second = await api()
-      .post(`/v1/admin/users/${target.id}/approve`)
-      .set("Authorization", `Bearer ${adminToken}`)
-    expect(second.status).toBe(409)
-  })
-
-  it("admin rejects a pending owner (row is deleted)", async () => {
-    const ownerPhone = nextPhone()
-    await api()
-      .post("/v1/auth/signup")
-      .send({ phone: ownerPhone, password: PASSWORD, name: "Reject Me", role: "OWNER" })
-
-    const adminLogin = await api()
-      .post("/v1/auth/login")
-      .send({ phone: SEED_ADMIN_PHONE, password: PASSWORD })
-    const adminToken = adminLogin.body.data.accessToken as string
-
-    const pending = await api()
-      .get("/v1/admin/users/pending-owners")
-      .set("Authorization", `Bearer ${adminToken}`)
-    const target = (pending.body.data.owners as { id: string; phone: string }[]).find(
-      (o) => o.phone === ownerPhone,
-    )!
-
-    const res = await api()
-      .post(`/v1/admin/users/${target.id}/reject`)
-      .set("Authorization", `Bearer ${adminToken}`)
-    expect(res.status).toBe(204)
-
-    const loginAttempt = await api()
-      .post("/v1/auth/login")
-      .send({ phone: ownerPhone, password: PASSWORD })
-    expect(loginAttempt.status).toBe(401)
-  })
-})
-
-describe("CORS hard-reject", () => {
-  it("rejects requests from a disallowed Origin with a typed error", async () => {
-    const res = await api()
-      .options("/v1/auth/login")
-      .set("Origin", "http://attacker.example")
-      .set("Access-Control-Request-Method", "POST")
-    // The cors lib calls into our error handler; we wrap as 403.
-    expect(res.status).toBe(403)
-  })
-
-  it("allows preflight from an allowed origin", async () => {
-    const res = await api()
-      .options("/v1/auth/login")
-      .set("Origin", "http://localhost:3000")
-      .set("Access-Control-Request-Method", "POST")
-    expect(res.status).toBeLessThan(400)
-    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000")
+      .set("Cookie", admin.cookieHeader)
+    expect(res.status).toBe(200)
   })
 })

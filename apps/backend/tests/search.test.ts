@@ -273,7 +273,7 @@ describe("Owner self-search via /stores/me/products?q=", () => {
     const owner = await signupApprovedOwner(app, "Search Test Owner")
     await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         name: "Search Owner Store",
         phone: "+919999777777",
@@ -286,7 +286,7 @@ describe("Owner self-search via /stores/me/products?q=", () => {
     const cats = await prisma.category.findMany({ take: 1 })
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         categoryId: cats[0]!.id,
         name: "Maggi 2-Minute Noodles",
@@ -298,12 +298,12 @@ describe("Owner self-search via /stores/me/products?q=", () => {
     // Soft delete the product
     await api()
       .delete(`/v1/stores/me/products/${created.body.data.product.id}`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
 
     // Owner with includeInactive=true + q='maggi' should still find it.
     const res = await api()
       .get("/v1/stores/me/products?q=maggi&includeInactive=true")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(200)
     expect(names(res)).toContain("Maggi 2-Minute Noodles")
   })
@@ -312,7 +312,7 @@ describe("Owner self-search via /stores/me/products?q=", () => {
     const owner = await signupApprovedOwner(app, "Devanagari Owner")
     await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         name: "Devanagari Store",
         phone: "+919999888888",
@@ -325,7 +325,7 @@ describe("Owner self-search via /stores/me/products?q=", () => {
     const cats = await prisma.category.findMany({ take: 1 })
     await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         categoryId: cats[0]!.id,
         name: "Bread Whole Wheat",
@@ -336,7 +336,7 @@ describe("Owner self-search via /stores/me/products?q=", () => {
 
     const res = await api()
       .get(`/v1/stores/me/products?q=${encodeURIComponent("ब्रेड")}`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(200)
     expect(names(res)).toContain("Bread Whole Wheat")
   })
@@ -347,7 +347,7 @@ describe("Validation around searchAliases on Product create/update", () => {
     const owner = await signupApprovedOwner(app, "Too Many Aliases")
     await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         name: "Aliases Store",
         phone: "+919999666666",
@@ -360,7 +360,7 @@ describe("Validation around searchAliases on Product create/update", () => {
     const cats = await prisma.category.findMany({ take: 1 })
     const res = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         categoryId: cats[0]!.id,
         name: "Test",
@@ -375,7 +375,7 @@ describe("Validation around searchAliases on Product create/update", () => {
     const owner = await signupApprovedOwner(app, "Dedupe Aliases")
     await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         name: "Dedupe Store",
         phone: "+919999555555",
@@ -388,7 +388,7 @@ describe("Validation around searchAliases on Product create/update", () => {
     const cats = await prisma.category.findMany({ take: 1 })
     const res = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         categoryId: cats[0]!.id,
         name: "DedupeProduct",

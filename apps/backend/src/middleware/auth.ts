@@ -1,56 +1,69 @@
+import { fromNodeHeaders } from "better-auth/node"
 import type { NextFunction, Request, RequestHandler, Response } from "express"
-import { prisma } from "../db/prisma.js"
 import { Role } from "../generated/prisma/enums.js"
+import { auth } from "../lib/auth.js"
 import { ForbiddenError, UnauthorizedError } from "../lib/errors.js"
-import { verifyAccessToken } from "../lib/jwt.js"
 
 declare module "express-serve-static-core" {
   interface Request {
-    /** Set by requireAuth. Always reflects the current DB row at request time. */
+    /**
+     * Set by requireAuth. Always reflects the better-auth session at request
+     * time (the cookie cache absorbs the hot-path DB hit).
+     */
     user?: {
       id: string
       role: Role
       isApproved: boolean
     }
+    /**
+     * The full session row from better-auth. Useful when a handler needs the
+     * session id (e.g. to revoke), the IP, or the user-agent.
+     */
+    session?: {
+      id: string
+      userId: string
+      expiresAt: Date
+    }
   }
 }
 
-function extractBearerToken(req: Request): string | null {
-  const header = req.headers.authorization
-  if (typeof header !== "string") return null
-  const [scheme, value] = header.split(" ", 2)
-  if (scheme !== "Bearer" || value === undefined || value.length === 0) return null
-  return value
-}
-
 /**
- * Verifies the access token and re-reads the user from the DB. Re-reading is
- * the cost we pay for revocation-on-role-change and post-issue suspensions
- * — the role/approval claims in the JWT are not trusted for authorization
- * decisions.
+ * Resolves the request's session via better-auth (cookie → DB lookup with a
+ * 5-minute in-memory cookie cache per lib/auth.ts session config). Mirrors
+ * the existing 401 / 403 contract:
+ *   - no cookie / invalid session → 401 UNAUTHORIZED
+ *   - session valid but user.isApproved=false → 403 FORBIDDEN
+ *     (the pending-approval gate is also enforced in the session.create
+ *     hook, but we re-check here so an approval-revocation mid-session
+ *     takes effect on the next request.)
  */
 export const requireAuth: RequestHandler = async (req, _res, next) => {
   try {
-    const token = extractBearerToken(req)
-    if (token === null) throw new UnauthorizedError()
-
-    let claims: Awaited<ReturnType<typeof verifyAccessToken>>
-    try {
-      claims = await verifyAccessToken(token)
-    } catch {
-      throw new UnauthorizedError("Invalid or expired token")
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    })
+    if (session === null) {
+      throw new UnauthorizedError()
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: claims.sub },
-      select: { id: true, role: true, isApproved: true },
-    })
-    if (user === null) throw new UnauthorizedError("Token subject no longer exists")
-    if (!user.isApproved) {
+    // better-auth attaches additionalFields to session.user at runtime;
+    // the type lacks them, so cast through unknown to the shape we know
+    // is present from our user.additionalFields config.
+    const u = session.user as unknown as {
+      id: string
+      role: Role
+      isApproved: boolean
+    }
+    if (!u.isApproved) {
       throw new ForbiddenError("Account is pending admin approval")
     }
 
-    req.user = { id: user.id, role: user.role, isApproved: user.isApproved }
+    req.user = { id: u.id, role: u.role, isApproved: u.isApproved }
+    req.session = {
+      id: session.session.id,
+      userId: session.session.userId,
+      expiresAt: session.session.expiresAt,
+    }
     next()
   } catch (err) {
     next(err)
@@ -60,8 +73,9 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
 /**
  * Gate a route by role. Always layer after requireAuth.
  *
- * Note: role gates are coarse. Real ownership checks (this customer's address,
- * this owner's store) belong in the service-layer query — see ensureOwnership.
+ * Note: role gates are coarse. Real ownership checks (this customer's
+ * address, this owner's store) belong in the service-layer query — see
+ * ensureOwnership.
  */
 export function requireRole(...allowed: Role[]): RequestHandler {
   if (allowed.length === 0) throw new Error("requireRole needs at least one role")
@@ -79,18 +93,20 @@ export function requireRole(...allowed: Role[]): RequestHandler {
 }
 
 /**
- * Service-layer helper: assert that the row a request is acting on belongs to
- * the calling user. The query is responsible for scoping by user id; this
- * helper just throws when nothing came back.
+ * Service-layer helper: assert that the row a request is acting on belongs
+ * to the calling user. The query is responsible for scoping by user id;
+ * this helper just throws when nothing came back.
  *
- * Usage:
  *   const store = await prisma.store.findFirst({
  *     where: { id: storeId, ownerId: req.user!.id }
  *   })
  *   ensureOwnership(store, "Store")
  *   // store is now non-null
  */
-export function ensureOwnership<T>(value: T | null, resourceName = "Resource"): asserts value is T {
+export function ensureOwnership<T>(
+  value: T | null,
+  resourceName = "Resource",
+): asserts value is T {
   if (value === null || value === undefined) {
     throw new ForbiddenError(`${resourceName} not found or not owned by caller`)
   }

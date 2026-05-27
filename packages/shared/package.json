@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./enums": "./src/enums.ts",
-    "./error-codes": "./src/error-codes.ts"
+    "./error-codes": "./src/error-codes.ts",
+    "./api-types": "./src/api-types.ts"
   },
   "scripts": {
     "lint": "eslint .",

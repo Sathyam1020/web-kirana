@@ -1,0 +1,10 @@
+{
+  "name": "Kirana Owner",
+  "short_name": "Owner",
+  "description": "Run your kirana store online",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ff385c",
+  "icons": []
+}

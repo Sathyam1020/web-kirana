@@ -1,0 +1,291 @@
+// Hand-mirrored from backend service view interfaces.
+// Source of truth: apps/backend/src/modules/*/*.service.ts
+
+import type { Role } from "./enums"
+
+// --- Auth ---------------------------------------------------------------
+// Phase 6.5: session lives in an httpOnly cookie (`kirana.session_token`).
+// The FE never holds a token. Successful sign-up / sign-in / get-session
+// returns the user, possibly the bare session token (for non-cookie
+// integrations), and that's it.
+
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  phone: string
+  role: Role | "ADMIN"
+  isApproved: boolean
+  emailVerified?: boolean
+  image?: string | null
+}
+
+/** Response shape for sign-up/email and sign-in/email (better-auth). */
+export interface AuthSuccess {
+  user: AuthUser
+  token: string
+}
+
+/** Response shape for get-session when authenticated. */
+export interface SessionResult {
+  user: AuthUser
+  session: {
+    id: string
+    expiresAt: string
+    token: string
+    userId: string
+  }
+}
+
+// --- Categories ---------------------------------------------------------
+
+export interface Category {
+  id: string
+  name: string
+  displayOrder: number
+  iconUrl: string | null
+  createdAt: string
+}
+
+// --- Stores -------------------------------------------------------------
+
+export interface StoreOwnerView {
+  id: string
+  ownerId: string
+  name: string
+  description: string | null
+  phone: string
+  isActive: boolean
+  isOpen: boolean
+  latitude: string
+  longitude: string
+  deliveryRadiusMeters: number
+  minOrderPaise: number
+  addressLine: string
+  city: string
+  pincode: string
+  imageUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StorePublicView {
+  id: string
+  name: string
+  description: string | null
+  phone: string
+  isOpen: boolean
+  latitude: string
+  longitude: string
+  deliveryRadiusMeters: number
+  minOrderPaise: number
+  addressLine: string
+  city: string
+  pincode: string
+  imageUrl: string | null
+  createdAt: string
+}
+
+export interface StoreNearbyHit extends StorePublicView {
+  distanceMeters: number
+}
+
+export interface NearbyResult {
+  items: StoreNearbyHit[]
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
+// --- Products -----------------------------------------------------------
+
+export type Unit = "KG" | "G" | "L" | "ML" | "PIECE" | "PACK" | "DOZEN"
+
+export const UNIT_LABELS: Record<Unit, string> = {
+  KG: "kg",
+  G: "g",
+  L: "L",
+  ML: "ml",
+  PIECE: "piece",
+  PACK: "pack",
+  DOZEN: "dozen",
+}
+
+export interface ProductOwnerView {
+  id: string
+  storeId: string
+  categoryId: string
+  categoryName: string
+  name: string
+  description: string | null
+  pricePaise: number
+  unit: Unit
+  imageUrl: string | null
+  isActive: boolean
+  isAvailable: boolean
+  isFeatured: boolean
+  featuredOrder: number | null
+  isPromoted: boolean
+  promotedUntil: string | null
+  searchAliases: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProductPublicView {
+  id: string
+  storeId: string
+  categoryId: string
+  categoryName: string
+  name: string
+  description: string | null
+  pricePaise: number
+  unit: Unit
+  imageUrl: string | null
+  isAvailable: boolean
+  isFeatured: boolean
+  featuredOrder: number | null
+}
+
+export interface CategoryCount {
+  id: string
+  name: string
+  productCount: number
+}
+
+export interface StoreDetailResult {
+  store: StorePublicView
+  featuredProducts: ProductPublicView[]
+  categories: CategoryCount[]
+}
+
+export interface StoreProductsResult {
+  items: ProductPublicView[]
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
+export interface OwnerProductsListResult {
+  items: ProductOwnerView[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+// --- Search -------------------------------------------------------------
+
+export interface SearchHit {
+  id: string
+  storeId: string
+  storeName: string
+  categoryId: string
+  categoryName: string
+  name: string
+  description: string | null
+  pricePaise: number
+  unit: Unit
+  imageUrl: string | null
+  isAvailable: boolean
+  isActive: boolean
+  score: number
+}
+
+export interface SearchResult {
+  items: SearchHit[]
+  page: number
+  limit: number
+  hasMore: boolean
+}
+
+// --- Addresses ----------------------------------------------------------
+
+export interface Address {
+  id: string
+  label: string
+  line1: string
+  line2: string | null
+  city: string
+  pincode: string
+  latitude: string
+  longitude: string
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+// --- Coupons ------------------------------------------------------------
+
+export type CouponType = "PERCENT" | "FLAT_PAISE"
+export type CouponScope = "GLOBAL" | "STORE"
+
+export interface Coupon {
+  id: string
+  code: string
+  type: CouponType
+  value: number
+  scope: CouponScope
+  storeId: string | null
+  maxDiscountPaise: number | null
+  minOrderPaise: number
+  validFrom: string
+  validUntil: string | null
+  isActive: boolean
+  totalUsageLimit: number | null
+  perUserLimit: number
+  usageCount: number
+  createdById: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CouponListResult {
+  items: Coupon[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+export type PreviewFailureReason =
+  | "INVALID_CODE"
+  | "MIN_ORDER_NOT_MET"
+  | "PRODUCT_NOT_FOUND"
+  | "PRODUCT_UNAVAILABLE"
+  | "MULTI_STORE_CART"
+
+export interface PreviewBreakdown {
+  subtotalPaise: number
+  discountPaise: number
+  finalPaise: number
+  couponCode: string
+  type: CouponType
+  scope: CouponScope
+  storeId: string | null
+}
+
+export type PreviewResult =
+  | { isValid: true; discountPaise: number; breakdown: PreviewBreakdown }
+  | { isValid: false; reason: PreviewFailureReason; minOrderPaise?: number }
+
+// --- Admin --------------------------------------------------------------
+
+export interface PendingOwner {
+  id: string
+  phone: string
+  name: string
+  createdAt: string
+}
+
+// --- Response envelope --------------------------------------------------
+
+export interface SuccessEnvelope<T> {
+  data: T
+}
+
+export interface ErrorEnvelopeBody {
+  code: string
+  message: string
+  details?: unknown
+}
+
+export interface ErrorEnvelope {
+  error: ErrorEnvelopeBody
+}

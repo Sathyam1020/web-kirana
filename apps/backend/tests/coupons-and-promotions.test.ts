@@ -49,16 +49,16 @@ afterAll(async () => {
 describe("Featured products (owner)", () => {
   it("owner can feature + unfeature a product in their own store", async () => {
     const owner = await signupApprovedOwner(app, "Feature Owner")
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ categoryId, name: "Featurable Product", pricePaise: 1000, unit: "PIECE" })
     const id = created.body.data.product.id
 
     const feat = await api()
       .post(`/v1/stores/me/products/${id}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ featuredOrder: 5 })
     expect(feat.status).toBe(200)
     expect(feat.body.data.product.isFeatured).toBe(true)
@@ -66,7 +66,7 @@ describe("Featured products (owner)", () => {
 
     const unfeat = await api()
       .delete(`/v1/stores/me/products/${id}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
     expect(unfeat.status).toBe(200)
     expect(unfeat.body.data.product.isFeatured).toBe(false)
     expect(unfeat.body.data.product.featuredOrder).toBeNull()
@@ -74,34 +74,34 @@ describe("Featured products (owner)", () => {
 
   it("feature with default featuredOrder=0 when omitted", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone: "+919998000002" })
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone: "+919998000002" })
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ categoryId, name: "Default Order", pricePaise: 1000, unit: "PIECE" })
 
     const feat = await api()
       .post(`/v1/stores/me/products/${created.body.data.product.id}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({})
     expect(feat.body.data.product.featuredOrder).toBe(0)
   })
 
   it("404 when feature-ing another owner's product (IDOR check)", async () => {
     const ownerA = await signupApprovedOwner(app, "Feat A")
-    await api().post("/v1/stores/me").set("Authorization", ownerA.bearer).send({ ...baseStoreBody, phone: "+919998000003" })
+    await api().post("/v1/stores/me").set("Cookie", ownerA.cookieHeader).send({ ...baseStoreBody, phone: "+919998000003" })
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", ownerA.bearer)
+      .set("Cookie", ownerA.cookieHeader)
       .send({ categoryId, name: "A's product", pricePaise: 1000, unit: "PIECE" })
     const idOfA = created.body.data.product.id
 
     const ownerB = await signupApprovedOwner(app, "Feat B")
-    await api().post("/v1/stores/me").set("Authorization", ownerB.bearer).send({ ...baseStoreBody, phone: "+919998000004" })
+    await api().post("/v1/stores/me").set("Cookie", ownerB.cookieHeader).send({ ...baseStoreBody, phone: "+919998000004" })
 
     const res = await api()
       .post(`/v1/stores/me/products/${idOfA}/feature`)
-      .set("Authorization", ownerB.bearer)
+      .set("Cookie", ownerB.cookieHeader)
       .send({ featuredOrder: 1 })
     expect(res.status).toBe(404)
   })
@@ -110,7 +110,7 @@ describe("Featured products (owner)", () => {
     const customer = await signupCustomer(app)
     const res = await api()
       .post(`/v1/stores/me/products/anything/feature`)
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({})
     expect(res.status).toBe(403)
   })
@@ -121,10 +121,10 @@ describe("Featured products (owner)", () => {
 describe("Promoted products (admin)", () => {
   it("admin promotes + unpromotes any product", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone: "+919998000005" })
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone: "+919998000005" })
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ categoryId, name: "Promo Candidate", pricePaise: 1000, unit: "PIECE" })
     const productId = created.body.data.product.id
 
@@ -132,7 +132,7 @@ describe("Promoted products (admin)", () => {
     const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     const promote = await api()
       .post(`/v1/admin/products/${productId}/promote`)
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ promotedUntil: until })
     expect(promote.status).toBe(200)
     expect(promote.body.data.product.isPromoted).toBe(true)
@@ -140,7 +140,7 @@ describe("Promoted products (admin)", () => {
 
     const unpromote = await api()
       .delete(`/v1/admin/products/${productId}/promote`)
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
     expect(unpromote.status).toBe(200)
     expect(unpromote.body.data.product.isPromoted).toBe(false)
     expect(unpromote.body.data.product.promotedUntil).toBeNull()
@@ -148,27 +148,27 @@ describe("Promoted products (admin)", () => {
 
   it("rejects promotedUntil in the past", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone: "+919998000006" })
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone: "+919998000006" })
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ categoryId, name: "Bad Promo", pricePaise: 1000, unit: "PIECE" })
 
     const admin = await loginSeededAdmin(app)
     const past = new Date(Date.now() - 1000).toISOString()
     const res = await api()
       .post(`/v1/admin/products/${created.body.data.product.id}/promote`)
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ promotedUntil: past })
     expect(res.status).toBe(400)
   })
 
   it("owner cannot promote (admin-only)", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone: "+919998000007" })
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone: "+919998000007" })
     const res = await api()
       .post("/v1/admin/products/anything/promote")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ promotedUntil: new Date(Date.now() + 100000).toISOString() })
     expect(res.status).toBe(403)
   })
@@ -177,7 +177,7 @@ describe("Promoted products (admin)", () => {
     const admin = await loginSeededAdmin(app)
     const res = await api()
       .post("/v1/admin/products/does-not-exist-zzz/promote")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ promotedUntil: new Date(Date.now() + 100000).toISOString() })
     expect(res.status).toBe(404)
   })
@@ -191,7 +191,7 @@ describe("Admin GLOBAL coupons", () => {
 
     const create = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({
         code: "T43-WELCOME50",
         type: "PERCENT",
@@ -214,25 +214,25 @@ describe("Admin GLOBAL coupons", () => {
     })
     const id = create.body.data.coupon.id
 
-    const get = await api().get(`/v1/admin/coupons/${id}`).set("Authorization", admin.bearer)
+    const get = await api().get(`/v1/admin/coupons/${id}`).set("Cookie", admin.cookieHeader)
     expect(get.status).toBe(200)
     expect(get.body.data.coupon.code).toBe("T43-WELCOME50")
 
-    const list = await api().get("/v1/admin/coupons").set("Authorization", admin.bearer)
+    const list = await api().get("/v1/admin/coupons").set("Cookie", admin.cookieHeader)
     expect(list.status).toBe(200)
     expect(list.body.data.items.find((c: { code: string }) => c.code === "T43-WELCOME50")).toBeDefined()
 
     const patch = await api()
       .patch(`/v1/admin/coupons/${id}`)
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ value: 25 })
     expect(patch.body.data.coupon.value).toBe(25)
 
-    const del = await api().delete(`/v1/admin/coupons/${id}`).set("Authorization", admin.bearer)
+    const del = await api().delete(`/v1/admin/coupons/${id}`).set("Cookie", admin.cookieHeader)
     expect(del.status).toBe(204)
 
     // Soft-deleted: still gettable, but isActive=false
-    const after = await api().get(`/v1/admin/coupons/${id}`).set("Authorization", admin.bearer)
+    const after = await api().get(`/v1/admin/coupons/${id}`).set("Cookie", admin.cookieHeader)
     expect(after.body.data.coupon.isActive).toBe(false)
   })
 
@@ -240,7 +240,7 @@ describe("Admin GLOBAL coupons", () => {
     const admin = await loginSeededAdmin(app)
     const create = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "t43-lowered", type: "FLAT_PAISE", value: 5000 })
     expect(create.status).toBe(201)
     expect(create.body.data.coupon.code).toBe("T43-LOWERED")
@@ -251,12 +251,12 @@ describe("Admin GLOBAL coupons", () => {
     const code = "T43-DUP"
     const first = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code, type: "FLAT_PAISE", value: 5000 })
     expect(first.status).toBe(201)
     const dupe = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code, type: "FLAT_PAISE", value: 5000 })
     expect(dupe.status).toBe(409)
   })
@@ -265,7 +265,7 @@ describe("Admin GLOBAL coupons", () => {
     const admin = await loginSeededAdmin(app)
     const res = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-BAD-PCT", type: "PERCENT", value: 200 })
     expect(res.status).toBe(400)
   })
@@ -274,7 +274,7 @@ describe("Admin GLOBAL coupons", () => {
     const admin = await loginSeededAdmin(app)
     const res = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-BAD-FLAT", type: "FLAT_PAISE", value: 5000, maxDiscountPaise: 100 })
     expect(res.status).toBe(400)
   })
@@ -285,18 +285,18 @@ describe("Admin GLOBAL coupons", () => {
     const until = new Date(Date.now() + 50000).toISOString()
     const res = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-WINDOW-BAD", type: "FLAT_PAISE", value: 5000, validFrom: from, validUntil: until })
     expect(res.status).toBe(400)
   })
 
   it("customer + owner cannot reach admin coupons", async () => {
     const customer = await signupCustomer(app)
-    const cRes = await api().get("/v1/admin/coupons").set("Authorization", customer.bearer)
+    const cRes = await api().get("/v1/admin/coupons").set("Cookie", customer.cookieHeader)
     expect(cRes.status).toBe(403)
 
     const owner = await signupApprovedOwner(app)
-    const oRes = await api().get("/v1/admin/coupons").set("Authorization", owner.bearer)
+    const oRes = await api().get("/v1/admin/coupons").set("Cookie", owner.cookieHeader)
     expect(oRes.status).toBe(403)
   })
 })
@@ -306,13 +306,13 @@ describe("Admin GLOBAL coupons", () => {
 describe("Owner STORE coupons", () => {
   it("owner creates a store-scoped coupon; storeId derived server-side", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone: "+919998000010" })
-    const me = await api().get("/v1/stores/me").set("Authorization", owner.bearer)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone: "+919998000010" })
+    const me = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
     const myStoreId = me.body.data.store.id
 
     const create = await api()
       .post("/v1/stores/me/coupons")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({
         code: "T43-STORE10",
         type: "PERCENT",
@@ -331,16 +331,16 @@ describe("Owner STORE coupons", () => {
   it("owner cannot list a different store's coupons", async () => {
     // Owner A creates a coupon at their store
     const ownerA = await signupApprovedOwner(app, "Coupon Owner A")
-    await api().post("/v1/stores/me").set("Authorization", ownerA.bearer).send({ ...baseStoreBody, phone: "+919998000011" })
+    await api().post("/v1/stores/me").set("Cookie", ownerA.cookieHeader).send({ ...baseStoreBody, phone: "+919998000011" })
     await api()
       .post("/v1/stores/me/coupons")
-      .set("Authorization", ownerA.bearer)
+      .set("Cookie", ownerA.cookieHeader)
       .send({ code: "T43-A-ONLY", type: "FLAT_PAISE", value: 1000 })
 
     // Owner B's list should NOT include T43-A-ONLY
     const ownerB = await signupApprovedOwner(app, "Coupon Owner B")
-    await api().post("/v1/stores/me").set("Authorization", ownerB.bearer).send({ ...baseStoreBody, phone: "+919998000012" })
-    const listB = await api().get("/v1/stores/me/coupons").set("Authorization", ownerB.bearer)
+    await api().post("/v1/stores/me").set("Cookie", ownerB.cookieHeader).send({ ...baseStoreBody, phone: "+919998000012" })
+    const listB = await api().get("/v1/stores/me/coupons").set("Cookie", ownerB.cookieHeader)
     expect(listB.status).toBe(200)
     expect(listB.body.data.items.find((c: { code: string }) => c.code === "T43-A-ONLY")).toBeUndefined()
   })
@@ -349,7 +349,7 @@ describe("Owner STORE coupons", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/stores/me/coupons")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ code: "T43-NOSTORE", type: "FLAT_PAISE", value: 1000 })
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe("STORE_NOT_CREATED")
@@ -367,13 +367,13 @@ describe("POST /v1/coupons/preview", () => {
   }> {
     const owner = await signupApprovedOwner(app, "Preview Setup Owner")
     const phone = `+9197${Math.floor(Math.random() * 9_000_000 + 1_000_000)}`
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send({ ...baseStoreBody, phone })
-    const me = await api().get("/v1/stores/me").set("Authorization", owner.bearer)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send({ ...baseStoreBody, phone })
+    const me = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
     const storeId = me.body.data.store.id
 
     const created = await api()
       .post("/v1/stores/me/products")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ categoryId, name: "Preview Item", pricePaise: 5000, unit: "PIECE" })
     const productId = created.body.data.product.id
 
@@ -385,13 +385,13 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-PCT20", type: "PERCENT", value: 20, minOrderPaise: 1000 })
 
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-PCT20", cart: [{ productId, quantity: 2 }] })
 
     expect(res.status).toBe(200)
@@ -406,13 +406,13 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-PCT50CAP", type: "PERCENT", value: 50, maxDiscountPaise: 3000 })
 
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-PCT50CAP", cart: [{ productId, quantity: 2 }] })
 
     // 50% of 10000 = 5000, capped at 3000.
@@ -423,13 +423,13 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-FLAT99K", type: "FLAT_PAISE", value: 99000 })
 
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-FLAT99K", cart: [{ productId, quantity: 1 }] })
 
     // Subtotal 5000 < coupon 99000 → discount = subtotal
@@ -441,7 +441,7 @@ describe("POST /v1/coupons/preview", () => {
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-DOESNOTEXIST", cart: [{ productId, quantity: 1 }] })
     expect(res.status).toBe(200)
     expect(res.body.data).toMatchObject({ isValid: false, reason: "INVALID_CODE" })
@@ -451,13 +451,13 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-MIN200", type: "FLAT_PAISE", value: 5000, minOrderPaise: 20_000 })
 
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-MIN200", cart: [{ productId, quantity: 1 }] })
     expect(res.body.data).toMatchObject({ isValid: false, reason: "MIN_ORDER_NOT_MET" })
     expect(res.body.data.minOrderPaise).toBe(20_000)
@@ -468,7 +468,7 @@ describe("POST /v1/coupons/preview", () => {
     // Create then immediately expire it via direct DB update
     const create = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-PASTUNTIL", type: "FLAT_PAISE", value: 1000 })
     await prisma.coupon.update({
       where: { id: create.body.data.coupon.id },
@@ -478,7 +478,7 @@ describe("POST /v1/coupons/preview", () => {
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-PASTUNTIL", cart: [{ productId, quantity: 1 }] })
     // Distinguishable reasons here would leak coupon existence to a code-
     // space scanner — the service collapses lifecycle failures to INVALID_CODE.
@@ -489,16 +489,16 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     const create = await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-INACTIVE", type: "FLAT_PAISE", value: 1000 })
     await api()
       .delete(`/v1/admin/coupons/${create.body.data.coupon.id}`)
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
 
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-INACTIVE", cart: [{ productId, quantity: 1 }] })
     expect(res.body.data).toMatchObject({ isValid: false, reason: "INVALID_CODE" })
   })
@@ -506,17 +506,17 @@ describe("POST /v1/coupons/preview", () => {
   it("store-scoped coupon used at the wrong store returns INVALID_CODE", async () => {
     // Owner A creates STORE coupon
     const ownerA = await signupApprovedOwner(app, "Wrong Store A")
-    await api().post("/v1/stores/me").set("Authorization", ownerA.bearer).send({ ...baseStoreBody, phone: `+9197${Math.floor(Math.random() * 9_000_000 + 1_000_000)}` })
+    await api().post("/v1/stores/me").set("Cookie", ownerA.cookieHeader).send({ ...baseStoreBody, phone: `+9197${Math.floor(Math.random() * 9_000_000 + 1_000_000)}` })
     await api()
       .post("/v1/stores/me/coupons")
-      .set("Authorization", ownerA.bearer)
+      .set("Cookie", ownerA.cookieHeader)
       .send({ code: "T43-A-STORE", type: "FLAT_PAISE", value: 500 })
 
     // Customer's cart is from a different store
     const { customer, productId } = await setupCustomerWithProducts()
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-A-STORE", cart: [{ productId, quantity: 1 }] })
     // Same opacity rule — store-scope mismatch is treated like an unknown
     // code so attackers can't enumerate private store codes.
@@ -527,7 +527,7 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-AVAIL-TEST", type: "FLAT_PAISE", value: 500 })
 
     const { customer, productId } = await setupCustomerWithProducts()
@@ -535,7 +535,7 @@ describe("POST /v1/coupons/preview", () => {
     try {
       const res = await api()
         .post("/v1/coupons/preview")
-        .set("Authorization", customer.bearer)
+        .set("Cookie", customer.cookieHeader)
         .send({ code: "T43-AVAIL-TEST", cart: [{ productId, quantity: 1 }] })
       expect(res.body.data).toMatchObject({ isValid: false, reason: "PRODUCT_UNAVAILABLE" })
     } finally {
@@ -547,7 +547,7 @@ describe("POST /v1/coupons/preview", () => {
     const admin = await loginSeededAdmin(app)
     await api()
       .post("/v1/admin/coupons")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send({ code: "T43-MULTI", type: "FLAT_PAISE", value: 500 })
 
     // Two seed products from different stores
@@ -567,7 +567,7 @@ describe("POST /v1/coupons/preview", () => {
     const customer = await signupCustomer(app)
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send({ code: "T43-MULTI", cart: [{ productId: idA!, quantity: 1 }, { productId: idB!, quantity: 1 }] })
     expect(res.body.data).toMatchObject({ isValid: false, reason: "MULTI_STORE_CART" })
   })
@@ -583,7 +583,7 @@ describe("POST /v1/coupons/preview", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/coupons/preview")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ code: "T43-ANY", cart: [{ productId: "p", quantity: 1 }] })
     expect(res.status).toBe(403)
   })
@@ -592,7 +592,7 @@ describe("POST /v1/coupons/preview", () => {
     const customer = await signupCustomer(app)
     const res = await api()
       .get("/v1/coupons/whatever")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
     expect(res.status).toBe(404)
   })
 })

@@ -1,7 +1,6 @@
 import { prisma } from "../../db/prisma.js"
 import { Role } from "../../generated/prisma/enums.js"
 import { ConflictError, NotFoundError } from "../../lib/errors.js"
-import { revokeAllForUser } from "../../lib/refresh-tokens.js"
 
 interface PendingOwnerRow {
   id: string
@@ -61,16 +60,13 @@ export async function approveOwner(opts: {
 }
 
 /**
- * Rejecting a pending owner deletes the user row (and cascades their refresh
- * tokens / etc.). The build prompt doesn't mandate retaining rejected
- * accounts; an audit table will land if/when the admin UI grows a history
- * view in a later phase.
+ * Rejecting a pending owner hard-deletes the user row. Better-auth Session
+ * + Account rows cascade off User (onDelete: Cascade), so any live sessions
+ * vanish with the user — no explicit revoke needed. The build prompt doesn't
+ * mandate retaining rejected accounts; an audit table will land if/when the
+ * admin UI grows a history view in a later phase.
  */
 export async function rejectOwner(opts: { ownerId: string }): Promise<void> {
-  // Nuke any live sessions defensively (no-op for a never-logged-in pending
-  // owner, but cheap insurance if the row was ever approved + un-approved).
-  await revokeAllForUser(opts.ownerId).catch(() => undefined)
-
   const result = await prisma.user.deleteMany({
     where: { id: opts.ownerId, role: Role.OWNER, isApproved: false },
   })

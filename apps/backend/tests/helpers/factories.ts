@@ -1,7 +1,12 @@
 /**
- * Test helpers: a per-run phone prefix so the shared DB seed survives, plus
- * factories that produce authenticated callers (customer / approved owner /
- * admin) for use with supertest. `cleanup()` nukes only what the run produced.
+ * Test helpers: phone/email prefixes scoped to a single test run so the
+ * shared seed survives, plus factories that produce authenticated callers
+ * (customer / approved owner / admin) for supertest.
+ *
+ * Phase 6.5: auth moved from JWT bearer header to a session COOKIE managed
+ * by better-auth. The caller object now exposes a `cookieHeader` string
+ * that test calls pass to `.set("Cookie", caller.cookieHeader)`. Older
+ * `Authorization: Bearer …` patterns no longer authenticate.
  */
 
 import { randomInt } from "node:crypto"
@@ -11,113 +16,195 @@ import { prisma } from "../../src/db/prisma.js"
 import { Role } from "../../src/generated/prisma/enums.js"
 
 const RUN_ID = randomInt(1_000_000, 9_999_999).toString()
-const PREFIX = `+9988${RUN_ID}`
+const PHONE_PREFIX = `+9988${RUN_ID}`
+const EMAIL_DOMAIN = `${RUN_ID}.kirana.test`
 const PASSWORD = "Password123!"
-const SEED_ADMIN_PHONE = "+919900000000"
+const SEED_ADMIN_EMAIL = "admin@kirana.local"
 
 let nextUserSuffix = 100
 export function nextPhone(): string {
   const suffix = String(nextUserSuffix++).padStart(3, "0")
-  return `${PREFIX}${suffix}`
+  return `${PHONE_PREFIX}${suffix}`
+}
+
+export function nextEmail(label = "user"): string {
+  const suffix = String(nextUserSuffix++).padStart(3, "0")
+  return `${label}-${suffix}@${EMAIL_DOMAIN}`
 }
 
 export function isRunPhone(phone: string): boolean {
-  return phone.startsWith(PREFIX)
+  return phone.startsWith(PHONE_PREFIX)
 }
 
 // --- Auth factories -----------------------------------------------------
 
 export interface AuthedCaller {
-  user: { id: string; phone: string; role: Role; name: string }
-  accessToken: string
-  /** Pre-built Authorization header value: "Bearer <token>". */
-  bearer: string
-}
-
-async function postJson<TBody>(
-  app: Express,
-  path: string,
-  body: TBody,
-  headers?: Record<string, string>,
-): Promise<request.Response> {
-  let req = request(app).post(path)
-  if (headers !== undefined) {
-    for (const [k, v] of Object.entries(headers)) req = req.set(k, v)
+  user: {
+    id: string
+    email: string
+    phone: string
+    role: Role
+    name: string
   }
-  return req.send(body as object)
+  /**
+   * Concatenated Cookie header value (one or more `name=value; ...` pairs).
+   * Pass to supertest like: `.set("Cookie", caller.cookieHeader)`.
+   */
+  cookieHeader: string
 }
 
-/** Signs up a CUSTOMER, returns auth context. */
-export async function signupCustomer(app: Express, name = "Test Customer"): Promise<AuthedCaller> {
+/**
+ * Reads supertest's set-cookie response array (or a single string) and turns
+ * it into a single Cookie header value (the format request headers want).
+ */
+function extractCookieHeader(res: request.Response): string {
+  const raw = res.headers["set-cookie"]
+  if (raw === undefined) {
+    throw new Error("Auth factory: response had no set-cookie header")
+  }
+  const cookies = Array.isArray(raw) ? raw : [raw]
+  // Each set-cookie value is like "name=value; Path=/; HttpOnly; ...".
+  // Cookie request headers only want the name=value pairs joined by "; ".
+  return cookies
+    .map((c) => c.split(";")[0])
+    .filter((c): c is string => c !== undefined && c.length > 0)
+    .join("; ")
+}
+
+interface SignupOpts {
+  email?: string
+  name: string
+  phone: string
+  role: Role
+}
+
+/**
+ * Calls POST /v1/auth/sign-up/email and returns the resulting cookie + the
+ * created user row. `autoSignIn: true` in lib/auth.ts means the response
+ * already carries the session cookie — no separate login call needed.
+ */
+async function signUpAndCaptureCookie(
+  app: Express,
+  opts: SignupOpts,
+): Promise<{ cookieHeader: string; userId: string; email: string }> {
+  const email = opts.email ?? nextEmail()
+  const res = await request(app)
+    .post("/v1/auth/sign-up/email")
+    .send({
+      email,
+      password: PASSWORD,
+      name: opts.name,
+      phone: opts.phone,
+      role: opts.role,
+    })
+  if (res.status !== 200) {
+    throw new Error(
+      `sign-up/email failed (${res.status}): ${JSON.stringify(res.body)}`,
+    )
+  }
+  const cookieHeader = extractCookieHeader(res)
+  // Better-auth returns { token, user: { id, ... } }
+  const userId = (res.body?.user?.id ?? res.body?.data?.user?.id) as string | undefined
+  if (typeof userId !== "string" || userId.length === 0) {
+    throw new Error(`sign-up/email response missing user.id: ${JSON.stringify(res.body)}`)
+  }
+  return { cookieHeader, userId, email }
+}
+
+/** Signs up a CUSTOMER and returns a session-bearing caller. */
+export async function signupCustomer(
+  app: Express,
+  name = "Test Customer",
+): Promise<AuthedCaller> {
   const phone = nextPhone()
-  const res = await postJson(app, "/v1/auth/signup", {
-    phone,
-    password: PASSWORD,
+  const { cookieHeader, userId, email } = await signUpAndCaptureCookie(app, {
     name,
+    phone,
     role: Role.CUSTOMER,
   })
-  if (res.status !== 201) {
-    throw new Error(`signupCustomer failed: ${res.status} ${JSON.stringify(res.body)}`)
-  }
-  const accessToken = res.body.data.accessToken as string
   return {
-    user: { id: res.body.data.user.id, phone, role: Role.CUSTOMER, name },
-    accessToken,
-    bearer: `Bearer ${accessToken}`,
+    user: { id: userId, email, phone, role: Role.CUSTOMER, name },
+    cookieHeader,
   }
 }
 
 /**
- * Signs up an OWNER, then DIRECTLY approves them in the DB (bypasses the
- * admin endpoint — that flow is tested in auth.test.ts). Logs them in and
- * returns auth context.
+ * Signs up an OWNER, flips isApproved=true directly in the DB (bypasses the
+ * admin endpoint — that flow is tested in auth.test.ts), then logs them in
+ * to get a fresh session cookie. The signup itself does NOT issue a usable
+ * session because the session.create hook rejects pending owners.
  */
-export async function signupApprovedOwner(app: Express, name = "Test Owner"): Promise<AuthedCaller> {
+export async function signupApprovedOwner(
+  app: Express,
+  name = "Test Owner",
+): Promise<AuthedCaller> {
   const phone = nextPhone()
-  const signup = await postJson(app, "/v1/auth/signup", {
-    phone,
-    password: PASSWORD,
-    name,
-    role: Role.OWNER,
-  })
-  if (signup.status !== 201) {
-    throw new Error(`owner signup failed: ${signup.status} ${JSON.stringify(signup.body)}`)
+  const email = nextEmail("owner")
+
+  // Signup — the user.create hook sets isApproved=false for OWNER role,
+  // and the session.create hook rejects login, so no session is issued.
+  // Better-auth returns 403 in this case; we don't treat it as an error.
+  const signupRes = await request(app)
+    .post("/v1/auth/sign-up/email")
+    .send({
+      email,
+      password: PASSWORD,
+      name,
+      phone,
+      role: Role.OWNER,
+    })
+  if (signupRes.status !== 200 && signupRes.status !== 403) {
+    throw new Error(
+      `owner sign-up failed unexpectedly (${signupRes.status}): ${JSON.stringify(signupRes.body)}`,
+    )
   }
+
+  // Approve directly in the DB.
   await prisma.user.update({
-    where: { phone },
+    where: { email },
     data: { isApproved: true, approvedAt: new Date() },
   })
-  const login = await postJson(app, "/v1/auth/login", { phone, password: PASSWORD })
-  if (login.status !== 200) {
-    throw new Error(`owner login failed: ${login.status} ${JSON.stringify(login.body)}`)
+
+  // Now sign in to capture a real session cookie.
+  const loginRes = await request(app)
+    .post("/v1/auth/sign-in/email")
+    .send({ email, password: PASSWORD })
+  if (loginRes.status !== 200) {
+    throw new Error(`owner login failed (${loginRes.status}): ${JSON.stringify(loginRes.body)}`)
   }
-  const accessToken = login.body.data.accessToken as string
+  const cookieHeader = extractCookieHeader(loginRes)
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { email },
+    select: { id: true },
+  })
   return {
-    user: { id: login.body.data.user.id, phone, role: Role.OWNER, name },
-    accessToken,
-    bearer: `Bearer ${accessToken}`,
+    user: { id: user.id, email, phone, role: Role.OWNER, name },
+    cookieHeader,
   }
 }
 
-/** Logs in the seeded admin user (phone +919900000000). */
+/** Signs in the seeded admin (email admin@kirana.local) and returns a caller. */
 export async function loginSeededAdmin(app: Express): Promise<AuthedCaller> {
-  const res = await postJson(app, "/v1/auth/login", {
-    phone: SEED_ADMIN_PHONE,
-    password: PASSWORD,
-  })
+  const res = await request(app)
+    .post("/v1/auth/sign-in/email")
+    .send({ email: SEED_ADMIN_EMAIL, password: PASSWORD })
   if (res.status !== 200) {
-    throw new Error(`admin login failed: ${res.status} ${JSON.stringify(res.body)}`)
+    throw new Error(`admin login failed (${res.status}): ${JSON.stringify(res.body)}`)
   }
-  const accessToken = res.body.data.accessToken as string
+  const cookieHeader = extractCookieHeader(res)
+  const admin = await prisma.user.findUniqueOrThrow({
+    where: { email: SEED_ADMIN_EMAIL },
+    select: { id: true, phone: true, name: true },
+  })
   return {
     user: {
-      id: res.body.data.user.id,
-      phone: SEED_ADMIN_PHONE,
+      id: admin.id,
+      email: SEED_ADMIN_EMAIL,
+      phone: admin.phone,
       role: Role.ADMIN,
-      name: res.body.data.user.name,
+      name: admin.name,
     },
-    accessToken,
-    bearer: `Bearer ${accessToken}`,
+    cookieHeader,
   }
 }
 
@@ -126,13 +213,17 @@ export async function loginSeededAdmin(app: Express): Promise<AuthedCaller> {
 /**
  * Removes everything this test run created. Order matters because of FK
  * Restrict relationships (Category ← Product, User ← Store etc.). Cascades
- * handle the rest.
+ * handle the rest (User → Store, Address, Session, Account, …).
  */
 export async function cleanupRun(): Promise<void> {
-  // Phone-prefixed users → their stores → their products cascade via Store
-  // onDelete: Cascade and Product onDelete: Cascade. Categories created by
-  // tests are separate; clean them by name prefix.
-  await prisma.user.deleteMany({ where: { phone: { startsWith: PREFIX } } })
+  await prisma.user.deleteMany({
+    where: {
+      OR: [
+        { phone: { startsWith: PHONE_PREFIX } },
+        { email: { endsWith: `@${EMAIL_DOMAIN}` } },
+      ],
+    },
+  })
 
   // Tests that create categories use the TEST_PREFIX to mark them.
   await prisma.category.deleteMany({

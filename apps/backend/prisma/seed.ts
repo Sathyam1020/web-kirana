@@ -1,27 +1,111 @@
 /**
  * Seed script — creates a small, deterministic dataset for local dev:
  *   - 4 categories (global)
- *   - 2 owners + their stores at real Bangalore coordinates
+ *   - 1 admin + 2 owners + 2 customers (via better-auth signUpEmail so the
+ *     password hash matches what better-auth expects on sign-in)
+ *   - 2 stores at real Bangalore coordinates
  *   - 6 products per store across the categories
- *   - 2 customers, one with a default address near the stores
+ *   - 1 default address near the stores
  *
- * Idempotent: every upsert is keyed so re-running won't duplicate rows.
+ * Idempotent: re-running won't duplicate rows.
+ *
+ * Login credentials after seed (password is the same for all): see SEED_PASSWORD.
+ *   admin@kirana.local
+ *   ramesh@kirana.local         (owner of Sri Krishna Kirana — auto-approved)
+ *   suman@kirana.local          (owner of Reddy Provisions — auto-approved)
+ *   anita@kirana.local          (customer)
+ *   karthik@kirana.local        (customer)
+ *
+ * Phones still seeded as profile data (kept identical to pre-6.5 seed so any
+ * external runbooks that reference them still work):
+ *   admin    +919900000000
+ *   ramesh   +919900000001
+ *   suman    +919900000002
+ *   anita    +919900000010
+ *   karthik  +919900000011
  */
 
-import argon2 from "argon2"
 import { prisma } from "../src/db/prisma.js"
 import { Role, Unit } from "../src/generated/prisma/enums.js"
+import { auth } from "../src/lib/auth.js"
 
 const SEED_PASSWORD = "Password123!"
 
-async function hashOnce(): Promise<string> {
-  return argon2.hash(SEED_PASSWORD)
+interface SeedUserSpec {
+  email: string
+  name: string
+  phone: string
+  role: Role
+  approve: boolean
+}
+
+/**
+ * Idempotent user seed via the better-auth signup API — guarantees the
+ * password hash is in the exact format better-auth's signIn.email expects.
+ *
+ * Trick: we ALWAYS signup as CUSTOMER (which the create hook allows), then
+ * patch the row to the desired role + approval state. That sidesteps the
+ * hook's ADMIN-signup-closed rule and the OWNER pending-approval gate, both
+ * of which exist for the public surface but are unwanted in seed.
+ */
+async function upsertSeedUser(spec: SeedUserSpec): Promise<{ id: string }> {
+  const existing = await prisma.user.findUnique({
+    where: { email: spec.email },
+    select: { id: true, role: true, isApproved: true, phone: true },
+  })
+  if (existing !== null) {
+    // Drift-correct: re-seed should bring an existing row back in line.
+    const needsPatch =
+      existing.role !== spec.role ||
+      existing.isApproved !== spec.approve ||
+      existing.phone !== spec.phone
+    if (needsPatch) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          role: spec.role,
+          isApproved: spec.approve,
+          phone: spec.phone,
+          approvedAt: spec.approve ? new Date() : null,
+        },
+      })
+    }
+    return { id: existing.id }
+  }
+
+  await auth.api.signUpEmail({
+    body: {
+      email: spec.email,
+      password: SEED_PASSWORD,
+      name: spec.name,
+      // Additional fields recognised by lib/auth.ts user.additionalFields.
+      // We always signup as CUSTOMER and patch below — keeps the seed off
+      // the OWNER pending-approval path and the ADMIN-closed gate.
+      phone: spec.phone,
+      role: Role.CUSTOMER,
+    },
+  })
+
+  const fresh = await prisma.user.findUniqueOrThrow({
+    where: { email: spec.email },
+    select: { id: true },
+  })
+
+  if (spec.role !== Role.CUSTOMER || !spec.approve) {
+    await prisma.user.update({
+      where: { id: fresh.id },
+      data: {
+        role: spec.role,
+        isApproved: spec.approve,
+        approvedAt: spec.approve ? new Date() : null,
+      },
+    })
+  }
+  return fresh
 }
 
 async function main(): Promise<void> {
-  const passwordHash = await hashOnce()
-
-  // Categories — global taxonomy, displayed in store detail grouped views.
+  // Categories — global taxonomy, displayed in store-detail grouped views.
   const categoriesSpec = [
     { name: "Atta, Rice & Dal", displayOrder: 10 },
     { name: "Dairy & Eggs", displayOrder: 20 },
@@ -44,42 +128,45 @@ async function main(): Promise<void> {
     return found.id
   }
 
-  // Admin — bootstrap account. No public signup for ADMIN; this is the only
-  // way an admin row exists in the DB.
-  await prisma.user.upsert({
-    where: { phone: "+919900000000" },
-    update: {},
-    create: {
-      phone: "+919900000000",
-      passwordHash,
-      role: Role.ADMIN,
-      name: "Marketplace Admin",
-      isApproved: true,
-    },
+  // Users (admin + owners + customers).
+  const admin = await upsertSeedUser({
+    email: "admin@kirana.local",
+    name: "Marketplace Admin",
+    phone: "+919900000000",
+    role: Role.ADMIN,
+    approve: true,
   })
+  const ownerA = await upsertSeedUser({
+    email: "ramesh@kirana.local",
+    name: "Ramesh Kumar",
+    phone: "+919900000001",
+    role: Role.OWNER,
+    approve: true,
+  })
+  const ownerB = await upsertSeedUser({
+    email: "suman@kirana.local",
+    name: "Suman Reddy",
+    phone: "+919900000002",
+    role: Role.OWNER,
+    approve: true,
+  })
+  const customerAnita = await upsertSeedUser({
+    email: "anita@kirana.local",
+    name: "Anita Sharma",
+    phone: "+919900000010",
+    role: Role.CUSTOMER,
+    approve: true,
+  })
+  await upsertSeedUser({
+    email: "karthik@kirana.local",
+    name: "Karthik N",
+    phone: "+919900000011",
+    role: Role.CUSTOMER,
+    approve: true,
+  })
+  void admin // referenced for log clarity below; no further use in seed
 
-  // Owners + stores.
-  const ownerA = await prisma.user.upsert({
-    where: { phone: "+919900000001" },
-    update: {},
-    create: {
-      phone: "+919900000001",
-      passwordHash,
-      role: Role.OWNER,
-      name: "Ramesh Kumar",
-    },
-  })
-  const ownerB = await prisma.user.upsert({
-    where: { phone: "+919900000002" },
-    update: {},
-    create: {
-      phone: "+919900000002",
-      passwordHash,
-      role: Role.OWNER,
-      name: "Suman Reddy",
-    },
-  })
-
+  // Stores.
   const storeA = await prisma.store.upsert({
     where: { ownerId: ownerA.id },
     update: {},
@@ -120,8 +207,8 @@ async function main(): Promise<void> {
     },
   })
 
-  // Products per store. Using deterministic SKU-like keys for idempotent upserts:
-  // (storeId, name) is not unique in the schema, so we identify by id-via-find.
+  // Products per store. (storeId, name) is not unique in the schema — we
+  // identify by find-then-create for idempotent re-seeds.
   const productSpec: Array<{
     store: typeof storeA
     name: string
@@ -160,7 +247,6 @@ async function main(): Promise<void> {
       where: { storeId: p.store.id, name: p.name },
     })
     if (existing) {
-      // Backfill aliases on existing rows so re-seeding upgrades the search dataset.
       if (p.aliases !== undefined) {
         await prisma.product.update({
           where: { id: existing.id },
@@ -183,25 +269,14 @@ async function main(): Promise<void> {
     })
   }
 
-  // Customers.
-  const customer = await prisma.user.upsert({
-    where: { phone: "+919900000010" },
-    update: {},
-    create: {
-      phone: "+919900000010",
-      passwordHash,
-      role: Role.CUSTOMER,
-      name: "Anita Sharma",
-    },
-  })
-
+  // Customer default address near the stores.
   const existingAddr = await prisma.address.findFirst({
-    where: { customerId: customer.id, label: "Home" },
+    where: { customerId: customerAnita.id, label: "Home" },
   })
   if (!existingAddr) {
     await prisma.address.create({
       data: {
-        customerId: customer.id,
+        customerId: customerAnita.id,
         label: "Home",
         line1: "Flat 4B, Brigade Meadows",
         line2: "Near HSR Club",
@@ -214,25 +289,13 @@ async function main(): Promise<void> {
     })
   }
 
-  await prisma.user.upsert({
-    where: { phone: "+919900000011" },
-    update: {},
-    create: {
-      phone: "+919900000011",
-      passwordHash,
-      role: Role.CUSTOMER,
-      name: "Karthik N",
-    },
-  })
-
-  console.log(
-    `Seed complete. Login password for every seeded user: "${SEED_PASSWORD}".`,
-  )
-  console.log("Admin login: phone +919900000000")
-  console.log("Owners:")
-  console.log(`  - ${storeA.name} → owner phone ${ownerA.phone}`)
-  console.log(`  - ${storeB.name} → owner phone ${ownerB.phone}`)
-  console.log("Customers: +919900000010 (Anita), +919900000011 (Karthik)")
+  console.log(`\nSeed complete. Password for every seeded user: "${SEED_PASSWORD}"`)
+  console.log("Logins:")
+  console.log("  admin    → admin@kirana.local")
+  console.log(`  owners   → ramesh@kirana.local  (${storeA.name})`)
+  console.log(`             suman@kirana.local   (${storeB.name})`)
+  console.log("  customers → anita@kirana.local  (has default address)")
+  console.log("              karthik@kirana.local")
 }
 
 main()

@@ -96,7 +96,7 @@ async function createStore(body: typeof STORE_A, isOpen = true): Promise<OwnedSt
   const owner = await signupApprovedOwner(app)
   const res = await api()
     .post("/v1/stores/me")
-    .set("Authorization", owner.bearer)
+    .set("Cookie", owner.cookieHeader)
     .send(body)
   if (res.status !== 201) {
     throw new Error(`store create failed: ${res.status} ${JSON.stringify(res.body)}`)
@@ -105,7 +105,7 @@ async function createStore(body: typeof STORE_A, isOpen = true): Promise<OwnedSt
   if (isOpen) {
     await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
   }
   return { owner, storeId }
@@ -130,7 +130,7 @@ async function addProduct(
   }
   const res = await api()
     .post("/v1/stores/me/products")
-    .set("Authorization", owner.bearer)
+    .set("Cookie", owner.cookieHeader)
     .send(body)
   if (res.status !== 201) {
     throw new Error(`product create failed: ${res.status} ${JSON.stringify(res.body)}`)
@@ -183,7 +183,7 @@ describe("GET /v1/stores/nearby", () => {
     const { storeId, owner } = await createStore(STORE_A)
     await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: false })
 
     const withoutFlag = await api().get(
@@ -263,7 +263,7 @@ describe("GET /v1/stores/:id", () => {
     // Pin it as featured via the owner endpoint so we exercise the real path.
     await api()
       .post(`/v1/stores/me/products/${productId}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ featuredOrder: 0 })
 
     const res = await api().get(`/v1/stores/${storeId}`)
@@ -285,9 +285,9 @@ describe("GET /v1/stores/:id", () => {
     const b = await addProduct(owner, { name: "Featured B" })
     const c = await addProduct(owner, { name: "Featured C" })
     // Pin all three with different orders: c=0, a=5, b=10
-    await api().post(`/v1/stores/me/products/${c}/feature`).set("Authorization", owner.bearer).send({ featuredOrder: 0 })
-    await api().post(`/v1/stores/me/products/${a}/feature`).set("Authorization", owner.bearer).send({ featuredOrder: 5 })
-    await api().post(`/v1/stores/me/products/${b}/feature`).set("Authorization", owner.bearer).send({ featuredOrder: 10 })
+    await api().post(`/v1/stores/me/products/${c}/feature`).set("Cookie", owner.cookieHeader).send({ featuredOrder: 0 })
+    await api().post(`/v1/stores/me/products/${a}/feature`).set("Cookie", owner.cookieHeader).send({ featuredOrder: 5 })
+    await api().post(`/v1/stores/me/products/${b}/feature`).set("Cookie", owner.cookieHeader).send({ featuredOrder: 10 })
 
     const res = await api().get(`/v1/stores/${storeId}`)
     expect(res.status).toBe(200)
@@ -310,7 +310,7 @@ describe("GET /v1/stores/:id", () => {
     const { storeId, owner } = await createStore(STORE_A)
     await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: false })
     const res = await api().get(`/v1/stores/${storeId}`)
     expect(res.status).toBe(200)
@@ -325,7 +325,7 @@ describe("GET /v1/stores/:id", () => {
 
   it("/v1/stores/me with valid OWNER auth still routes to owner endpoint (fall-through preserved)", async () => {
     const { owner } = await createStore(STORE_A)
-    const res = await api().get("/v1/stores/me").set("Authorization", owner.bearer)
+    const res = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(200)
     // Owner endpoint returns { store: ... } with ownerId — public would not.
     expect(res.body.data.store.ownerId).toBe(owner.user.id)
@@ -338,7 +338,7 @@ describe("GET /v1/stores/:id", () => {
 
   it("/v1/stores/me with CUSTOMER auth → 403 (owner router enforces role)", async () => {
     const customer = await signupCustomer(app)
-    const res = await api().get("/v1/stores/me").set("Authorization", customer.bearer)
+    const res = await api().get("/v1/stores/me").set("Cookie", customer.cookieHeader)
     expect(res.status).toBe(403)
   })
 
@@ -356,11 +356,11 @@ describe("GET /v1/stores/:id", () => {
     const featuredId = await addProduct(owner, { name: "Pinned but OOS" })
     await api()
       .post(`/v1/stores/me/products/${featuredId}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ featuredOrder: 0 })
     await api()
       .patch(`/v1/stores/me/products/${featuredId}`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isAvailable: false })
 
     const res = await api().get(`/v1/stores/${storeId}`)
@@ -387,8 +387,8 @@ describe("GET /v1/stores/:id/products", () => {
     const visible = await addProduct(owner, { name: "Visible" })
     const oos = await addProduct(owner, { name: "OOS" })
     const deleted = await addProduct(owner, { name: "Deleted" })
-    await api().patch(`/v1/stores/me/products/${oos}`).set("Authorization", owner.bearer).send({ isAvailable: false })
-    await api().delete(`/v1/stores/me/products/${deleted}`).set("Authorization", owner.bearer)
+    await api().patch(`/v1/stores/me/products/${oos}`).set("Cookie", owner.cookieHeader).send({ isAvailable: false })
+    await api().delete(`/v1/stores/me/products/${deleted}`).set("Cookie", owner.cookieHeader)
 
     const res = await api().get(`/v1/stores/${storeId}/products`)
     expect(res.status).toBe(200)
@@ -422,7 +422,7 @@ describe("GET /v1/stores/:id/products", () => {
     const featured = await addProduct(owner, { name: "ZZZ featured" })
     await api()
       .post(`/v1/stores/me/products/${featured}/feature`)
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ featuredOrder: 0 })
 
     const res = await api().get(`/v1/stores/${storeId}/products`)
@@ -474,7 +474,7 @@ describe("GET /v1/stores/:id/products", () => {
     // when id === "me" so the owner-side router can serve it.
     const { owner } = await createStore(STORE_A)
     await addProduct(owner, { name: "Owner-side list check" })
-    const res = await api().get("/v1/stores/me/products").set("Authorization", owner.bearer)
+    const res = await api().get("/v1/stores/me/products").set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body.data.items)).toBe(true)
   })

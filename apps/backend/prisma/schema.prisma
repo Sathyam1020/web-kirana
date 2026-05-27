@@ -78,79 +78,116 @@ enum WhatsAppMessageStatus {
 
 // Phase 4.3 — coupons
 enum CouponType {
-  PERCENT     // value is 1..100 (interpreted as a percentage)
-  FLAT_PAISE  // value is the absolute discount in paise
+  PERCENT // value is 1..100 (interpreted as a percentage)
+  FLAT_PAISE // value is the absolute discount in paise
 }
 
 enum CouponScope {
-  GLOBAL   // any store; created by admin only
-  STORE    // scoped to one store; created by that store's owner
+  GLOBAL // any store; created by admin only
+  STORE // scoped to one store; created by that store's owner
 }
 
 // --- Identity -----------------------------------------------------------
 
+// User is owned by better-auth (Phase 6.5). Better-auth requires the
+// id/email/name/emailVerified/image/createdAt/updatedAt columns; everything
+// else here is our `additionalFields` declared in lib/auth.ts:
+//   phone (unique, normalized), role, isApproved, approvedAt, approvedById.
+// All domain relations (Store, Address, Order, etc.) stay attached.
 model User {
-  id           String   @id @default(cuid())
-  phone        String   @unique
-  passwordHash String
-  role         Role
-  name         String
+  id            String  @id @default(cuid())
+  name          String
+  email         String  @unique
+  emailVerified Boolean @default(false)
+  image         String?
+
+  // Custom additional fields — input/required configured in lib/auth.ts.
+  phone String @unique
+  role  Role   @default(CUSTOMER)
 
   // Approval gate: customers default to isApproved=true; owner signups are
   // created with isApproved=false and must be approved by an ADMIN before
-  // login succeeds. Set on the row that performed the approval for audit.
-  isApproved   Boolean  @default(true)
-  approvedAt   DateTime?
-  approvedById String?
-  approvedBy   User?    @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedUsers User[]  @relation("UserApprovedBy")
+  // login succeeds (enforced in the session.create hook in lib/auth.ts).
+  isApproved    Boolean   @default(true)
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User?     @relation("UserApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedUsers User[]    @relation("UserApprovedBy")
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  ownedStore         Store?              @relation("StoreOwner")
-  refreshTokens      RefreshToken[]
-  addresses          Address[]
-  orders             Order[]             @relation("OrdersByCustomer")
-  statusHistoryActs  OrderStatusHistory[] @relation("StatusActor")
-  pushSubscriptions  PushSubscription[]
-  idempotencyKeys    IdempotencyKey[]
+  // Better-auth-managed
+  sessions Session[]
+  accounts Account[]
+
+  // Domain relations (unchanged)
+  ownedStore        Store?               @relation("StoreOwner")
+  addresses         Address[]
+  orders            Order[]              @relation("OrdersByCustomer")
+  statusHistoryActs OrderStatusHistory[] @relation("StatusActor")
+  pushSubscriptions PushSubscription[]
+  idempotencyKeys   IdempotencyKey[]
 
   // Phase 4.3 — coupons
-  couponsCreated     Coupon[]            @relation("CouponCreatedBy")
-  couponRedemptions  CouponRedemption[]
+  couponsCreated    Coupon[]           @relation("CouponCreatedBy")
+  couponRedemptions CouponRedemption[]
 
   @@index([role])
   @@index([role, isApproved])
 }
 
-model RefreshToken {
+// Better-auth: per-device session row. Cookie carries the session token,
+// DB lookup gives us the user. Sliding expiry per lib/auth.ts session config.
+model Session {
   id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Opaque token stored hashed at rest. Lookup goes via tokenHash.
-  tokenHash String   @unique
-
-  // Family for chain-revoke on reuse detection: every refresh issues a new
-  // token with the same familyId; a parent that's already replaced or revoked
-  // means token reuse — revoke the whole family.
-  familyId   String
-  parentId   String?       @unique
-  parent     RefreshToken? @relation("RefreshChain", fields: [parentId], references: [id])
-  child      RefreshToken? @relation("RefreshChain")
-
-  expiresAt DateTime
-  revokedAt DateTime?
-
-  userAgent String?
-  ip        String?
-
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
-  @@index([familyId])
   @@index([expiresAt])
+}
+
+// Better-auth: per-provider account row. For email+password we have one
+// per user with providerId="credential" and password=<bcrypt hash>.
+// Future OAuth providers (Google, etc.) would add additional rows here.
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+// Better-auth: short-lived tokens (email verification, password reset, etc.).
+// Unused today; required by the schema contract.
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
 }
 
 // --- Catalog ------------------------------------------------------------
@@ -166,24 +203,24 @@ model Category {
 }
 
 model Store {
-  id          String  @id @default(cuid())
-  ownerId     String  @unique
-  owner       User    @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  ownerId String @unique
+  owner   User   @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   name        String
   description String?
   phone       String
 
-  isActive    Boolean @default(true)
-  isOpen      Boolean @default(false)
+  isActive Boolean @default(true)
+  isOpen   Boolean @default(false)
 
   // Stored coordinates; the geography column `location` is maintained by
   // a database trigger added in the PostGIS migration. Marked Unsupported
   // so Prisma knows it exists and won't try to drop it on the next migrate,
   // but it remains read/write-able only via raw SQL ($queryRaw / migrations).
-  latitude    Decimal @db.Decimal(10, 7)
-  longitude   Decimal @db.Decimal(10, 7)
-  location    Unsupported("geography(Point, 4326)")?
+  latitude  Decimal                                @db.Decimal(10, 7)
+  longitude Decimal                                @db.Decimal(10, 7)
+  location  Unsupported("geography(Point, 4326)")?
 
   deliveryRadiusMeters Int @default(3000)
   minOrderPaise        Int @default(0)
@@ -205,12 +242,12 @@ model Store {
 }
 
 model Product {
-  id          String  @id @default(cuid())
-  storeId     String
-  store       Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   name        String
   description String?
@@ -220,7 +257,7 @@ model Product {
 
   // Soft delete: isActive=false means the product is hidden from the catalog
   // but remains for historical orders that reference it.
-  isActive    Boolean @default(true)
+  isActive Boolean @default(true)
 
   // Owner-toggled or reset nightly by the Phase 11 cron.
   isAvailable Boolean @default(true)
@@ -247,7 +284,7 @@ model Product {
   //    trigger from name + description + categoryName + storeName +
   //    searchAliases. Unsupported because Prisma can't model tsvector;
   //    served via raw SQL in the /v1/search/products endpoint.
-  searchAliases String[] @default([])
+  searchAliases String[]                 @default([])
   searchVector  Unsupported("tsvector")?
 
   createdAt DateTime @default(now())
@@ -267,36 +304,36 @@ model Product {
 // --- Addresses ----------------------------------------------------------
 
 model Address {
-  id         String  @id @default(cuid())
+  id         String @id @default(cuid())
   customerId String
-  customer   User    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  label      String
-  line1      String
-  line2      String?
-  city       String
-  pincode    String
-  latitude   Decimal @db.Decimal(10, 7)
-  longitude  Decimal @db.Decimal(10, 7)
-  isDefault  Boolean @default(false)
+  label     String
+  line1     String
+  line2     String?
+  city      String
+  pincode   String
+  latitude  Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+  isDefault Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([customerId])
   // Only one default per customer is enforced at the service layer (a partial
   // unique index is added by raw SQL migration for the DB-side guard).
+
+  @@index([customerId])
 }
 
 // --- Orders -------------------------------------------------------------
 
 model Order {
-  id          String       @id @default(cuid())
-  customerId  String
-  customer    User         @relation("OrdersByCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  id         String @id @default(cuid())
+  customerId String
+  customer   User   @relation("OrdersByCustomer", fields: [customerId], references: [id], onDelete: Restrict)
 
-  storeId     String
-  store       Store        @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
 
   status        OrderStatus   @default(PLACED)
   paymentMethod PaymentMethod @default(COD)
@@ -323,14 +360,14 @@ model Order {
 
   // Lifecycle timestamps; the canonical record of transitions lives in
   // OrderStatusHistory. These mirror the latest entry for convenience.
-  placedAt          DateTime  @default(now())
-  acceptedAt        DateTime?
-  outForDeliveryAt  DateTime?
-  deliveredAt       DateTime?
-  rejectedAt        DateTime?
-  cancelledAt       DateTime?
+  placedAt         DateTime  @default(now())
+  acceptedAt       DateTime?
+  outForDeliveryAt DateTime?
+  deliveredAt      DateTime?
+  rejectedAt       DateTime?
+  cancelledAt      DateTime?
 
-  rejectionReason   String?
+  rejectionReason    String?
   cancellationReason String?
 
   createdAt DateTime @default(now())
@@ -377,9 +414,9 @@ model OrderItem {
 }
 
 model OrderStatusHistory {
-  id        String  @id @default(cuid())
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   fromStatus OrderStatus?
   toStatus   OrderStatus
@@ -397,14 +434,14 @@ model OrderStatusHistory {
 // --- Idempotency --------------------------------------------------------
 
 model IdempotencyKey {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Scope groups keys per endpoint so the same client key can be reused
   // across different actions without colliding.
-  scope     String
-  key       String
+  scope String
+  key   String
 
   // sha256(canonical(request body)) — replays with a different body get rejected.
   requestFingerprint String
@@ -425,34 +462,34 @@ model IdempotencyKey {
 // --- Notifications ------------------------------------------------------
 
 model WhatsAppMessageLog {
-  id           String                @id @default(cuid())
-  toPhone      String
-  templateName String
-  payload      Json
-  status       WhatsAppMessageStatus @default(PENDING)
-  waMessageId  String?               @unique
-  errorCode    String?
-  errorMessage String?
-  attempts     Int                   @default(0)
+  id            String                @id @default(cuid())
+  toPhone       String
+  templateName  String
+  payload       Json
+  status        WhatsAppMessageStatus @default(PENDING)
+  waMessageId   String?               @unique
+  errorCode     String?
+  errorMessage  String?
+  attempts      Int                   @default(0)
   lastAttemptAt DateTime?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   @@index([status, createdAt])
 }
 
 model PushSubscription {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  endpoint   String   @unique
-  p256dh     String
-  auth       String
-  userAgent  String?
+  endpoint  String  @unique
+  p256dh    String
+  auth      String
+  userAgent String?
 
-  createdAt   DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
 
   @@index([userId])
 }
@@ -460,41 +497,41 @@ model PushSubscription {
 // --- Coupons (Phase 4.3) ------------------------------------------------
 
 model Coupon {
-  id          String      @id @default(cuid())
-  code        String      @unique
-  type        CouponType
+  id    String     @id @default(cuid())
+  code  String     @unique
+  type  CouponType
   // PERCENT: value is 1..100 (percent of subtotal)
   // FLAT_PAISE: value is the discount in paise
-  value       Int
+  value Int
 
-  scope       CouponScope
+  scope   CouponScope
   // Required when scope = STORE. NULL for GLOBAL.
-  storeId     String?
-  store       Store?      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeId String?
+  store   Store?      @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   // Cap on PERCENT-type discounts (e.g., "50% off, max ₹100"). Ignored
   // for FLAT_PAISE.
   maxDiscountPaise Int?
-  minOrderPaise    Int    @default(0)
+  minOrderPaise    Int  @default(0)
 
-  validFrom    DateTime  @default(now())
-  validUntil   DateTime?
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
 
-  isActive     Boolean   @default(true)
+  isActive Boolean @default(true)
 
   // null = unlimited. Phase 7 enforces via the redemption table count.
   totalUsageLimit Int?
-  perUserLimit    Int     @default(1)
+  perUserLimit    Int  @default(1)
   // Maintained atomically by Phase 7 inside the order tx.
-  usageCount      Int     @default(0)
+  usageCount      Int  @default(0)
 
-  createdById  String
-  createdBy    User      @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdById String
+  createdBy   User   @relation("CouponCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  redemptions  CouponRedemption[]
+  redemptions CouponRedemption[]
 
   @@index([scope, isActive])
   @@index([storeId, isActive])
@@ -502,17 +539,17 @@ model Coupon {
 }
 
 model CouponRedemption {
-  id                   String   @id @default(cuid())
-  couponId             String
-  coupon               Coupon   @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  id       String @id @default(cuid())
+  couponId String
+  coupon   Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
 
-  userId               String
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // One redemption row per Order — uniqueness here is what prevents
   // double-apply on a single order.
-  orderId              String   @unique
-  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   discountAppliedPaise Int
 

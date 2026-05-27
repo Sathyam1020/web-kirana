@@ -13,10 +13,12 @@
 
 import { Role } from "../src/generated/prisma/enums.js"
 import { prisma } from "../src/db/prisma.js"
+import { auth } from "../src/lib/auth.js"
 
 type CountRow = { count: bigint }
 
-const TEST_OWNER_PHONE = "+91999SMOKE01"
+const TEST_OWNER_EMAIL = "smoke-owner@kirana.local"
+const TEST_OWNER_PHONE = "+919996501010"
 const NEAR_POINT = { lat: 12.9145, lng: 77.6432 } // ~700m from HSR seed store
 const FAR_POINT = { lat: 28.6139, lng: 77.209 } // Delhi
 const RADIUS_M = 3000
@@ -45,16 +47,26 @@ async function getLocationWkt(storeId: string): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
-  // Owner needs to exist before the store FK.
-  const owner = await prisma.user.upsert({
-    where: { phone: TEST_OWNER_PHONE },
-    update: {},
-    create: {
-      phone: TEST_OWNER_PHONE,
-      passwordHash: "smoke-not-a-real-hash",
-      role: Role.OWNER,
-      name: "Smoke Owner",
-    },
+  // Owner needs to exist before the store FK. Use the better-auth signup
+  // API so the row matches the new schema exactly; then patch to OWNER +
+  // approved (the hook would otherwise mark OWNER as pending).
+  const existing = await prisma.user.findUnique({ where: { email: TEST_OWNER_EMAIL } })
+  let owner = existing
+  if (owner === null) {
+    await auth.api.signUpEmail({
+      body: {
+        email: TEST_OWNER_EMAIL,
+        password: "Smoke-Password-1234!",
+        name: "Smoke Owner",
+        phone: TEST_OWNER_PHONE,
+        role: Role.CUSTOMER, // bypass OWNER pending-approval hook; patch below
+      },
+    })
+    owner = await prisma.user.findUniqueOrThrow({ where: { email: TEST_OWNER_EMAIL } })
+  }
+  await prisma.user.update({
+    where: { id: owner.id },
+    data: { role: Role.OWNER, isApproved: true, approvedAt: new Date() },
   })
 
   // The trigger keys off coords on insert.
@@ -106,7 +118,7 @@ async function main(): Promise<void> {
   } finally {
     // Clean up so the seed dataset is untouched.
     await prisma.store.delete({ where: { ownerId: owner.id } }).catch(() => undefined)
-    await prisma.user.delete({ where: { phone: TEST_OWNER_PHONE } }).catch(() => undefined)
+    await prisma.user.delete({ where: { email: TEST_OWNER_EMAIL } }).catch(() => undefined)
   }
 }
 

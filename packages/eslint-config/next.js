@@ -48,4 +48,11 @@ export const nextJsConfig = [
       "react/prop-types": "off",
     },
   },
+  {
+    // Next config + ESM config scripts run in Node, not the browser.
+    files: ["next.config.mjs", "*.config.mjs", "*.config.js"],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
 ]

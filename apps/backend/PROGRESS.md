@@ -52,6 +52,10 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 4.3   | Featured / promoted / coupons (schema + endpoints; apply at order) | ✅ done        | `3163d42` |
 | 5     | Discovery — PostGIS /stores/nearby + store detail + store products | ✅ done        | `9771c78` |
 | 6     | Customer addresses CRUD                                            | ✅ done        | `1195c46` |
+| 6.5   | Auth replacement — better-auth (cookie sessions; fixes refresh bug)| ✅ done        | _pending_ |
+| 6.6   | Taxonomy upgrade — Department/Category/Subcategory + product re-FK | ⏳ pending     |           |
+| 6.7   | Cloudinary signed uploads                                          | ⏳ pending     |           |
+| 6.8   | Product-level discounts                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
 | 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
@@ -69,6 +73,73 @@ user shared a live URL in chat; ask them to rotate after the build is done).
   (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
   comma-separated list so future frontends just append their origin.
 - **`apps/rider`** PWA — implied by the Phase 7.5 plan below.
+
+---
+
+## Phase 6.5 — Auth replacement (notes for future sessions)
+
+Ripped out the hand-rolled JWT + refresh-token + CSRF stack and replaced
+it with [better-auth](https://better-auth.com). The session lives in an
+httpOnly cookie (`kirana.session_token`) backed by a DB `Session` row;
+the cookie survives page reloads, so the customer/owner PWAs no longer
+need any refresh-on-boot interceptor.
+
+**Stack now:**
+- `lib/auth.ts` — the better-auth instance. Email+password as the primary
+  credential. Phone, role, isApproved are `additionalFields`. Phone is
+  validated + normalized server-side in the `user.create.before` hook.
+- `middleware/auth.ts` — `requireAuth` reads the session via
+  `auth.api.getSession({ headers: fromNodeHeaders(req.headers) })`.
+  `requireRole` and `ensureOwnership` are unchanged.
+- `app.ts` — mounts `toNodeHandler(auth)` at `/v1/auth/*splat` BEFORE
+  `express.json()` (better-auth controls body parsing on its own routes).
+- `prisma/seed.ts` — creates seed users via `auth.api.signUpEmail()` so
+  passwords are stored in the format better-auth expects on sign-in.
+  Trick: signup ALWAYS happens with role=CUSTOMER (the only role the
+  user.create hook allows for the public surface), then we `prisma.user
+  .update` to ADMIN/OWNER + isApproved=true. Sidesteps the closed-ADMIN
+  + pending-approval-OWNER gates that exist only for the public path.
+
+**Endpoint shape changed:**
+- `POST /v1/auth/sign-up/email` `{ email, password, name, phone, role }`
+- `POST /v1/auth/sign-in/email` `{ email, password }`
+- `GET  /v1/auth/get-session`
+- `POST /v1/auth/sign-out`
+- (no separate refresh — sliding 30d session, re-stamped every 24h)
+
+**Seeded credentials (re-run `npm run db:seed` after pulling 6.5):**
+- admin: `admin@kirana.local / Password123!`
+- owners: `ramesh@kirana.local`, `suman@kirana.local`
+- customers: `anita@kirana.local`, `karthik@kirana.local`
+- Phones (`+919900000000`, `+919900000001`, ...) still seeded as
+  profile data, just no longer used as login identifiers.
+
+**Locked decisions (DO NOT RE-LITIGATE):**
+- Email-and-password, NOT phone+OTP. Phone is profile data for delivery
+  contact. OTP can layer on later (phone-number plugin) when we have an
+  SMS provider; doesn't require migration.
+- `basePath: "/v1/auth"` MUST be set in the better-auth config — the
+  default is `/api/auth` and silently 404s if not aligned with the
+  mount path in app.ts.
+- `advanced.cookiePrefix: "kirana"` — cookies are
+  `kirana.session_token` + `kirana.session_data` (the latter is the
+  5-min in-memory cache shadow; in browsers it auto-clears on sign-out
+  via Max-Age=0, but supertest replays of a stale Cookie header will
+  appear to still auth until the cache expires — that's not a bug).
+- `rateLimit.enabled = env.NODE_ENV !== "test"` — tests burst from one
+  IP and would otherwise 429. Same pattern as the global rate-limit
+  middleware (see "Test infrastructure" section below).
+- `databaseHooks` use `throw new APIError("FORBIDDEN", { message })`
+  from `better-auth/api` — NOT plain `Error`. APIError surfaces the
+  right HTTP status; plain throws become 500.
+- DB reset on dev was a one-time big-bang. Old User rows + RefreshToken
+  rows are gone; the migration cleared them via a `TRUNCATE … CASCADE`
+  helper before the schema diff was generated.
+
+**Test factory contract changed:**
+- `AuthedCaller` exposes `cookieHeader: string` instead of `bearer`.
+  Tests do `.set("Cookie", caller.cookieHeader)` — a sed sweep turned
+  all 242 prior `Authorization: Bearer …` call sites into the new form.
 
 ---
 

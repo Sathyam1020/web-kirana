@@ -42,7 +42,7 @@ describe("POST /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send(baseStoreBody)
 
     expect(res.status).toBe(201)
@@ -65,13 +65,13 @@ describe("POST /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const first = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send(baseStoreBody)
     expect(first.status).toBe(201)
 
     const second = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ ...baseStoreBody, name: "Different name" })
     expect(second.status).toBe(409)
     expect(second.body.error.code).toBe("CONFLICT")
@@ -82,7 +82,7 @@ describe("POST /v1/stores/me", () => {
     const formatted = "+91 99990 00099"
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ ...baseStoreBody, phone: formatted })
     expect(res.status).toBe(201)
     expect(res.body.data.store.phone).toBe("+919999000099")
@@ -92,7 +92,7 @@ describe("POST /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ ...baseStoreBody, latitude: 99 })
     expect(res.status).toBe(400)
     expect(res.body.error.code).toBe("VALIDATION_ERROR")
@@ -102,7 +102,7 @@ describe("POST /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ ...baseStoreBody, deliveryRadiusMeters: 100 })
     expect(res.status).toBe(400)
   })
@@ -111,7 +111,7 @@ describe("POST /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ ...baseStoreBody, mysteryField: 42 })
     expect(res.status).toBe(400)
   })
@@ -120,7 +120,7 @@ describe("POST /v1/stores/me", () => {
     const customer = await signupCustomer(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", customer.bearer)
+      .set("Cookie", customer.cookieHeader)
       .send(baseStoreBody)
     expect(res.status).toBe(403)
   })
@@ -129,7 +129,7 @@ describe("POST /v1/stores/me", () => {
     const admin = await loginSeededAdmin(app)
     const res = await api()
       .post("/v1/stores/me")
-      .set("Authorization", admin.bearer)
+      .set("Cookie", admin.cookieHeader)
       .send(baseStoreBody)
     expect(res.status).toBe(403)
   })
@@ -143,27 +143,27 @@ describe("POST /v1/stores/me", () => {
 describe("GET /v1/stores/me", () => {
   it("returns the caller's store", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
-    const res = await api().get("/v1/stores/me").set("Authorization", owner.bearer)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
+    const res = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(200)
     expect(res.body.data.store.ownerId).toBe(owner.user.id)
   })
 
   it("returns 404 STORE_NOT_CREATED before creation", async () => {
     const owner = await signupApprovedOwner(app)
-    const res = await api().get("/v1/stores/me").set("Authorization", owner.bearer)
+    const res = await api().get("/v1/stores/me").set("Cookie", owner.cookieHeader)
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe("STORE_NOT_CREATED")
   })
 
   it("owner B never sees owner A's store", async () => {
     const ownerA = await signupApprovedOwner(app, "Owner A")
-    await api().post("/v1/stores/me").set("Authorization", ownerA.bearer).send({
+    await api().post("/v1/stores/me").set("Cookie", ownerA.cookieHeader).send({
       ...baseStoreBody,
       phone: "+919999000111",
     })
     const ownerB = await signupApprovedOwner(app, "Owner B")
-    const res = await api().get("/v1/stores/me").set("Authorization", ownerB.bearer)
+    const res = await api().get("/v1/stores/me").set("Cookie", ownerB.cookieHeader)
     expect(res.status).toBe(404)
   })
 })
@@ -171,11 +171,11 @@ describe("GET /v1/stores/me", () => {
 describe("PATCH /v1/stores/me", () => {
   it("partial update of name + minOrderPaise", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
 
     const res = await api()
       .patch("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ name: "Renamed Kirana", minOrderPaise: 14_900 })
 
     expect(res.status).toBe(200)
@@ -187,10 +187,10 @@ describe("PATCH /v1/stores/me", () => {
 
   it("clears description with null", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
     const res = await api()
       .patch("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ description: null })
     expect(res.status).toBe(200)
     expect(res.body.data.store.description).toBeNull()
@@ -198,10 +198,10 @@ describe("PATCH /v1/stores/me", () => {
 
   it("rejects latitude without longitude (must move together)", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
     const res = await api()
       .patch("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ latitude: 13.0 })
     expect(res.status).toBe(400)
   })
@@ -210,13 +210,13 @@ describe("PATCH /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const create = await api()
       .post("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send(baseStoreBody)
     const storeId = create.body.data.store.id
 
     await api()
       .patch("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ latitude: 12.95, longitude: 77.55 })
 
     const rows = await prisma.$queryRaw<{ wkt: string | null }[]>`
@@ -229,7 +229,7 @@ describe("PATCH /v1/stores/me", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .patch("/v1/stores/me")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ name: "Anything" })
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe("STORE_NOT_CREATED")
@@ -239,39 +239,39 @@ describe("PATCH /v1/stores/me", () => {
 describe("PATCH /v1/stores/me/open", () => {
   it("toggle true → false → true round-trips", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
 
     const open = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
     expect(open.status).toBe(200)
     expect(open.body.data.store.isOpen).toBe(true)
 
     const close = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: false })
     expect(close.body.data.store.isOpen).toBe(false)
 
     const reopen = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
     expect(reopen.body.data.store.isOpen).toBe(true)
   })
 
   it("idempotent: same value twice both return 200", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
     const first = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
     expect(first.status).toBe(200)
     const second = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
     expect(second.status).toBe(200)
     expect(second.body.data.store.isOpen).toBe(true)
@@ -281,7 +281,7 @@ describe("PATCH /v1/stores/me/open", () => {
     const owner = await signupApprovedOwner(app)
     const res = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true })
     expect(res.status).toBe(404)
     expect(res.body.error.code).toBe("STORE_NOT_CREATED")
@@ -289,10 +289,10 @@ describe("PATCH /v1/stores/me/open", () => {
 
   it("rejects unknown field", async () => {
     const owner = await signupApprovedOwner(app)
-    await api().post("/v1/stores/me").set("Authorization", owner.bearer).send(baseStoreBody)
+    await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
     const res = await api()
       .patch("/v1/stores/me/open")
-      .set("Authorization", owner.bearer)
+      .set("Cookie", owner.cookieHeader)
       .send({ isOpen: true, weird: 1 })
     expect(res.status).toBe(400)
   })

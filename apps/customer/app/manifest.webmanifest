@@ -1,0 +1,10 @@
+{
+  "name": "Kirana",
+  "short_name": "Kirana",
+  "description": "Your neighbourhood store, online",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ff385c",
+  "icons": []
+}
