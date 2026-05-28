@@ -100,6 +100,16 @@ export type DomainEvent =
       customerId: string
       totalPaise: number
     }
+  // Phase 8 — emitted after every lifecycle transition.
+  | {
+      type: "order.status_changed"
+      orderId: string
+      storeId: string
+      customerId: string
+      fromStatus: string
+      toStatus: string
+      actorType: "OWNER" | "CUSTOMER" | "SYSTEM"
+    }
 
 type EventType = DomainEvent["type"]
 type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>

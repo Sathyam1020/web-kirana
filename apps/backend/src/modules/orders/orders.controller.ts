@@ -4,10 +4,12 @@ import { sendCreated, sendData } from "../../lib/response.js"
 import { getValidated } from "../../lib/validated.js"
 import * as service from "./orders.service.js"
 import type {
+  CancelOrderBody,
   ListOrdersQuery,
   OrderIdParam,
   OwnerListOrdersQuery,
   PlaceOrderBody,
+  RejectOrderBody,
 } from "./orders.schemas.js"
 
 // --- Customer -----------------------------------------------------------
@@ -49,4 +51,38 @@ export async function getStore(req: Request, res: Response): Promise<void> {
   if (req.ownStore === undefined) throw new UnauthorizedError()
   const { id } = getValidated(req).params as OrderIdParam
   sendData(res, { order: await service.getStoreOrder(req.ownStore.id, id) })
+}
+
+// --- Lifecycle transitions (Phase 8) ------------------------------------
+
+export async function accept(req: Request, res: Response): Promise<void> {
+  if (req.ownStore === undefined || req.user === undefined) throw new UnauthorizedError()
+  const { id } = getValidated(req).params as OrderIdParam
+  sendData(res, { order: await service.acceptOrder(req.ownStore.id, req.user.id, id) })
+}
+
+export async function reject(req: Request, res: Response): Promise<void> {
+  if (req.ownStore === undefined || req.user === undefined) throw new UnauthorizedError()
+  const { id } = getValidated(req).params as OrderIdParam
+  const body = req.body as RejectOrderBody
+  sendData(res, { order: await service.rejectOrder(req.ownStore.id, req.user.id, id, body.reason) })
+}
+
+export async function outForDelivery(req: Request, res: Response): Promise<void> {
+  if (req.ownStore === undefined || req.user === undefined) throw new UnauthorizedError()
+  const { id } = getValidated(req).params as OrderIdParam
+  sendData(res, { order: await service.markOutForDelivery(req.ownStore.id, req.user.id, id) })
+}
+
+export async function deliver(req: Request, res: Response): Promise<void> {
+  if (req.ownStore === undefined || req.user === undefined) throw new UnauthorizedError()
+  const { id } = getValidated(req).params as OrderIdParam
+  sendData(res, { order: await service.markDelivered(req.ownStore.id, req.user.id, id) })
+}
+
+export async function cancel(req: Request, res: Response): Promise<void> {
+  if (req.user === undefined) throw new UnauthorizedError()
+  const { id } = getValidated(req).params as OrderIdParam
+  const body = req.body as CancelOrderBody
+  sendData(res, { order: await service.cancelOrder(req.user.id, id, body.reason) })
 }

@@ -12,6 +12,7 @@ import { events } from "../../lib/events.js"
 import {
   CartChangedError,
   ConflictError,
+  InvalidTransitionError,
   NotFoundError,
   OutOfServiceAreaError,
   StoreClosedError,
@@ -66,11 +67,20 @@ export interface OrderView {
   items: OrderItemView[]
   placedAt: string
   createdAt: string
+  // Phase 8 — lifecycle timestamps + reasons (null until reached).
+  acceptedAt: string | null
+  outForDeliveryAt: string | null
+  deliveredAt: string | null
+  rejectedAt: string | null
+  cancelledAt: string | null
+  rejectionReason: string | null
+  cancellationReason: string | null
 }
 
 const ORDER_SELECT = {
   id: true,
   storeId: true,
+  customerId: true,
   status: true,
   paymentMethod: true,
   paymentStatus: true,
@@ -91,6 +101,13 @@ const ORDER_SELECT = {
   customerNote: true,
   placedAt: true,
   createdAt: true,
+  acceptedAt: true,
+  outForDeliveryAt: true,
+  deliveredAt: true,
+  rejectedAt: true,
+  cancelledAt: true,
+  rejectionReason: true,
+  cancellationReason: true,
   items: {
     select: {
       id: true,
@@ -112,6 +129,7 @@ const ORDER_SELECT = {
 type OrderRow = {
   id: string
   storeId: string
+  customerId: string
   status: OrderStatus
   paymentMethod: PaymentMethod
   paymentStatus: PaymentStatus
@@ -132,6 +150,13 @@ type OrderRow = {
   customerNote: string | null
   placedAt: Date
   createdAt: Date
+  acceptedAt: Date | null
+  outForDeliveryAt: Date | null
+  deliveredAt: Date | null
+  rejectedAt: Date | null
+  cancelledAt: Date | null
+  rejectionReason: string | null
+  cancellationReason: string | null
   items: Array<{
     id: string
     productId: string | null
@@ -187,6 +212,13 @@ function toOrderView(row: OrderRow): OrderView {
     })),
     placedAt: row.placedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
+    acceptedAt: row.acceptedAt?.toISOString() ?? null,
+    outForDeliveryAt: row.outForDeliveryAt?.toISOString() ?? null,
+    deliveredAt: row.deliveredAt?.toISOString() ?? null,
+    rejectedAt: row.rejectedAt?.toISOString() ?? null,
+    cancelledAt: row.cancelledAt?.toISOString() ?? null,
+    rejectionReason: row.rejectionReason,
+    cancellationReason: row.cancellationReason,
   }
 }
 
@@ -594,4 +626,148 @@ async function listOrders(
     nextCursor: hasMore ? (trimmed[trimmed.length - 1]?.id ?? null) : null,
     hasMore,
   }
+}
+
+// --- Lifecycle transitions (Phase 8) ------------------------------------
+
+type Scope = { storeId: string } | { customerId: string }
+
+/**
+ * Atomic, double-tap-safe status transition. The guarded updateMany (WHERE
+ * includes the expected `from` status + the ownership scope) is the whole
+ * concurrency story: 0 rows means the order is either not owned/found or not
+ * in the expected state — a follow-up read disambiguates 404 vs 409. Writes a
+ * history row and emits order.status_changed.
+ */
+async function transition(opts: {
+  orderId: string
+  scope: Scope
+  from: OrderStatus
+  to: OrderStatus
+  actorType: ActorType
+  actorUserId: string
+  patch: Record<string, unknown>
+  reason?: string | null
+}): Promise<OrderView> {
+  const row = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.order.updateMany({
+      where: { id: opts.orderId, status: opts.from, ...opts.scope },
+      data: { status: opts.to, ...opts.patch },
+    })
+    if (claimed.count === 0) {
+      const exists = await tx.order.findFirst({
+        where: { id: opts.orderId, ...opts.scope },
+        select: { id: true },
+      })
+      if (exists === null) throw new NotFoundError("Order not found")
+      throw new InvalidTransitionError()
+    }
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId: opts.orderId,
+        fromStatus: opts.from,
+        toStatus: opts.to,
+        actorType: opts.actorType,
+        actorUserId: opts.actorUserId,
+        reason: opts.reason ?? null,
+      },
+    })
+    return tx.order.findUniqueOrThrow({ where: { id: opts.orderId }, select: ORDER_SELECT })
+  })
+
+  const view = toOrderView(row)
+  events.emit({
+    type: "order.status_changed",
+    orderId: row.id,
+    storeId: row.storeId,
+    customerId: row.customerId,
+    fromStatus: opts.from,
+    toStatus: opts.to,
+    actorType: opts.actorType,
+  })
+  return view
+}
+
+// Owner-driven transitions (scoped to the owner's store).
+
+export function acceptOrder(storeId: string, ownerId: string, orderId: string): Promise<OrderView> {
+  return transition({
+    orderId,
+    scope: { storeId },
+    from: OrderStatus.PLACED,
+    to: OrderStatus.ACCEPTED,
+    actorType: ActorType.OWNER,
+    actorUserId: ownerId,
+    patch: { acceptedAt: new Date() },
+  })
+}
+
+export function rejectOrder(
+  storeId: string,
+  ownerId: string,
+  orderId: string,
+  reason: string,
+): Promise<OrderView> {
+  return transition({
+    orderId,
+    scope: { storeId },
+    from: OrderStatus.PLACED,
+    to: OrderStatus.REJECTED,
+    actorType: ActorType.OWNER,
+    actorUserId: ownerId,
+    patch: { rejectedAt: new Date(), rejectionReason: reason },
+    reason,
+  })
+}
+
+export function markOutForDelivery(
+  storeId: string,
+  ownerId: string,
+  orderId: string,
+): Promise<OrderView> {
+  return transition({
+    orderId,
+    scope: { storeId },
+    from: OrderStatus.ACCEPTED,
+    to: OrderStatus.OUT_FOR_DELIVERY,
+    actorType: ActorType.OWNER,
+    actorUserId: ownerId,
+    patch: { outForDeliveryAt: new Date() },
+  })
+}
+
+export function markDelivered(
+  storeId: string,
+  ownerId: string,
+  orderId: string,
+): Promise<OrderView> {
+  return transition({
+    orderId,
+    scope: { storeId },
+    from: OrderStatus.OUT_FOR_DELIVERY,
+    to: OrderStatus.DELIVERED,
+    actorType: ActorType.OWNER,
+    actorUserId: ownerId,
+    // COD collected at the door.
+    patch: { deliveredAt: new Date(), paymentStatus: PaymentStatus.COLLECTED },
+  })
+}
+
+// Customer cancel — only while still PLACED.
+
+export function cancelOrder(
+  customerId: string,
+  orderId: string,
+  reason: string | undefined,
+): Promise<OrderView> {
+  return transition({
+    orderId,
+    scope: { customerId },
+    from: OrderStatus.PLACED,
+    to: OrderStatus.CANCELLED,
+    actorType: ActorType.CUSTOMER,
+    actorUserId: customerId,
+    patch: { cancelledAt: new Date(), cancellationReason: reason ?? null },
+    reason: reason ?? null,
+  })
 }

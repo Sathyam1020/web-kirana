@@ -554,6 +554,27 @@ export function buildApi(http: AxiosInstance) {
         ),
       order: (id: string) =>
         pluck<OrderView, "order">(http.get(`/v1/stores/me/orders/${id}`), "order"),
+      // Phase 8 — owner lifecycle transitions.
+      acceptOrder: (id: string) =>
+        pluck<OrderView, "order">(
+          http.post(`/v1/stores/me/orders/${id}/accept`),
+          "order",
+        ),
+      rejectOrder: (id: string, reason: string) =>
+        pluck<OrderView, "order">(
+          http.post(`/v1/stores/me/orders/${id}/reject`, { reason }),
+          "order",
+        ),
+      markOutForDelivery: (id: string) =>
+        pluck<OrderView, "order">(
+          http.post(`/v1/stores/me/orders/${id}/out-for-delivery`),
+          "order",
+        ),
+      markDelivered: (id: string) =>
+        pluck<OrderView, "order">(
+          http.post(`/v1/stores/me/orders/${id}/deliver`),
+          "order",
+        ),
     },
 
     orders: {
@@ -572,6 +593,12 @@ export function buildApi(http: AxiosInstance) {
         ),
       get: (id: string) =>
         pluck<OrderView, "order">(http.get(`/v1/orders/${id}`), "order"),
+      // Phase 8 — customer cancel (only while PLACED, enforced server-side).
+      cancel: (id: string, reason?: string) =>
+        pluck<OrderView, "order">(
+          http.post(`/v1/orders/${id}/cancel`, reason ? { reason } : {}),
+          "order",
+        ),
     },
 
     products: {

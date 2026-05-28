@@ -5,10 +5,12 @@ import { requireOwnStore } from "../../middleware/require-own-store.js"
 import { validate } from "../../middleware/validate.js"
 import * as controller from "./orders.controller.js"
 import {
+  cancelOrderBodySchema,
   listOrdersQuerySchema,
   orderIdParamSchema,
   ownerListOrdersQuerySchema,
   placeOrderBodySchema,
+  rejectOrderBodySchema,
 } from "./orders.schemas.js"
 
 /**
@@ -25,6 +27,12 @@ ordersRouter.post(
 )
 ordersRouter.get("/", validate({ query: listOrdersQuerySchema }), controller.listMine)
 ordersRouter.get("/:id", validate({ params: orderIdParamSchema }), controller.getMine)
+// Phase 8 — customer can cancel only while the order is still PLACED.
+ordersRouter.post(
+  "/:id/cancel",
+  validate({ params: orderIdParamSchema, body: cancelOrderBodySchema }),
+  controller.cancel,
+)
 
 /**
  * Owner-side order inbox. Mounted under /v1/stores/me/orders — the parent
@@ -42,4 +50,26 @@ ordersOwnerRouter.get(
   "/:id",
   validate({ params: orderIdParamSchema }),
   controller.getStore,
+)
+
+// Phase 8 — owner-driven lifecycle transitions.
+ordersOwnerRouter.post(
+  "/:id/accept",
+  validate({ params: orderIdParamSchema }),
+  controller.accept,
+)
+ordersOwnerRouter.post(
+  "/:id/reject",
+  validate({ params: orderIdParamSchema, body: rejectOrderBodySchema }),
+  controller.reject,
+)
+ordersOwnerRouter.post(
+  "/:id/out-for-delivery",
+  validate({ params: orderIdParamSchema }),
+  controller.outForDelivery,
+)
+ordersOwnerRouter.post(
+  "/:id/deliver",
+  validate({ params: orderIdParamSchema }),
+  controller.deliver,
 )

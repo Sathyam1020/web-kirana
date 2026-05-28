@@ -354,6 +354,14 @@ export interface OrderView {
   items: OrderItemView[]
   placedAt: string
   createdAt: string
+  // Phase 8 — lifecycle timestamps + reasons (null until reached).
+  acceptedAt: string | null
+  outForDeliveryAt: string | null
+  deliveredAt: string | null
+  rejectedAt: string | null
+  cancelledAt: string | null
+  rejectionReason: string | null
+  cancellationReason: string | null
 }
 
 export interface OrdersListResult {

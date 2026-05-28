@@ -37,3 +37,14 @@ export const ownerListOrdersQuerySchema = z.strictObject({
   status: z.nativeEnum(OrderStatus).optional(),
 })
 export type OwnerListOrdersQuery = z.infer<typeof ownerListOrdersQuerySchema>
+
+// Phase 8 — lifecycle transition bodies.
+export const rejectOrderBodySchema = z.strictObject({
+  reason: z.string().trim().min(1).max(300),
+})
+export type RejectOrderBody = z.infer<typeof rejectOrderBodySchema>
+
+export const cancelOrderBodySchema = z.strictObject({
+  reason: z.string().trim().min(1).max(300).optional(),
+})
+export type CancelOrderBody = z.infer<typeof cancelOrderBodySchema>
