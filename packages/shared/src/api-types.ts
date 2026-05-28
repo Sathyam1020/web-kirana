@@ -306,6 +306,62 @@ export interface OwnerProductsListResult {
   hasMore: boolean
 }
 
+// --- Orders (Phase 7) ---------------------------------------------------
+
+export type OrderStatus =
+  | "PLACED"
+  | "ACCEPTED"
+  | "OUT_FOR_DELIVERY"
+  | "DELIVERED"
+  | "REJECTED"
+  | "CANCELLED"
+export type PaymentMethod = "COD"
+export type PaymentStatus = "PENDING" | "COLLECTED"
+
+export interface OrderItemView {
+  id: string
+  productId: string | null
+  nameSnapshot: string
+  imageUrlSnapshot: string | null
+  unitPricePaiseSnapshot: number
+  unitSnapshot: Unit
+  quantity: number
+  lineTotalPaise: number
+}
+
+export interface OrderView {
+  id: string
+  status: OrderStatus
+  paymentMethod: PaymentMethod
+  paymentStatus: PaymentStatus
+  itemsSubtotalPaise: number
+  discountPaise: number
+  deliveryFeePaise: number
+  totalPaise: number
+  couponCode: string | null
+  store: { id: string; nameSnapshot: string; phoneSnapshot: string }
+  customer: { nameSnapshot: string; phoneSnapshot: string }
+  delivery: {
+    label: string
+    line1: string
+    line2: string | null
+    city: string
+    pincode: string
+    latitude: string
+    longitude: string
+  }
+  customerNote: string | null
+  items: OrderItemView[]
+  placedAt: string
+  createdAt: string
+}
+
+export interface OrdersListResult {
+  items: OrderView[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 // --- Uploads (Phase 6.7: Cloudinary signed uploads) ---------------------
 
 /** What an entity image can belong to. Owner scopes vs admin (icon) scopes. */

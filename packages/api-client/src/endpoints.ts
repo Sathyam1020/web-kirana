@@ -12,6 +12,9 @@ import type {
   DepartmentWithCategories,
   DiscountType,
   NearbyResult,
+  OrdersListResult,
+  OrderStatus,
+  OrderView,
   OwnerProductsListResult,
   PendingOwner,
   PreviewResult,
@@ -130,6 +133,27 @@ export type UpdateProductBody = Partial<{
 
 export interface MoveProductBody {
   subcategoryId: string
+}
+
+// ---------- Orders (Phase 7) --------------------------------------------
+
+export interface PlaceOrderBody {
+  addressId: string
+  cart: { productId: string; quantity: number }[]
+  couponCode?: string
+  customerNote?: string
+  paymentMethod?: "COD"
+}
+
+export interface OrdersQuery {
+  cursor?: string
+  limit?: number
+}
+
+export interface OwnerOrdersQuery {
+  cursor?: string
+  limit?: number
+  status?: OrderStatus
 }
 
 // ---------- Store banners (owner) ---------------------------------------
@@ -522,6 +546,32 @@ export function buildApi(http: AxiosInstance) {
           http.patch("/v1/stores/me/banners/active", { bannerId }),
           "banners",
         ),
+
+      // Phase 7 — owner order inbox (read-only this phase).
+      orders: (q: OwnerOrdersQuery = {}) =>
+        unwrap<OrdersListResult>(
+          http.get("/v1/stores/me/orders", { params: serializeQuery(q) }),
+        ),
+      order: (id: string) =>
+        pluck<OrderView, "order">(http.get(`/v1/stores/me/orders/${id}`), "order"),
+    },
+
+    orders: {
+      // Placement is idempotent — pass a fresh UUID per checkout attempt; the
+      // server returns the same order for a retry with the same key + body.
+      place: (body: PlaceOrderBody, idempotencyKey: string) =>
+        pluck<OrderView, "order">(
+          http.post("/v1/orders", body, {
+            headers: { "Idempotency-Key": idempotencyKey },
+          }),
+          "order",
+        ),
+      list: (q: OrdersQuery = {}) =>
+        unwrap<OrdersListResult>(
+          http.get("/v1/orders", { params: serializeQuery(q) }),
+        ),
+      get: (id: string) =>
+        pluck<OrderView, "order">(http.get(`/v1/orders/${id}`), "order"),
     },
 
     products: {

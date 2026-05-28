@@ -10,6 +10,26 @@ import type {
   UpdateCouponBody,
 } from "./coupons.schemas.js"
 
+/**
+ * Pure discount math, shared by the customer preview and the Phase 7 order
+ * placement transaction so both compute the coupon discount identically.
+ * PERCENT is floored and capped by maxDiscountPaise; FLAT never exceeds the
+ * subtotal.
+ */
+export function computeCouponDiscountPaise(opts: {
+  type: CouponType
+  value: number
+  maxDiscountPaise: number | null
+  subtotalPaise: number
+}): number {
+  if (opts.type === CouponType.PERCENT) {
+    let d = Math.floor((opts.subtotalPaise * opts.value) / 100)
+    if (opts.maxDiscountPaise !== null) d = Math.min(d, opts.maxDiscountPaise)
+    return d
+  }
+  return Math.min(opts.value, opts.subtotalPaise)
+}
+
 export interface CouponView {
   id: string
   code: string
@@ -406,16 +426,12 @@ export async function preview(
     }
   }
 
-  let discountPaise: number
-  if (coupon.type === CouponType.PERCENT) {
-    discountPaise = Math.floor((subtotal * coupon.value) / 100)
-    if (coupon.maxDiscountPaise !== null) {
-      discountPaise = Math.min(discountPaise, coupon.maxDiscountPaise)
-    }
-  } else {
-    // FLAT_PAISE — never discount more than the subtotal
-    discountPaise = Math.min(coupon.value, subtotal)
-  }
+  const discountPaise = computeCouponDiscountPaise({
+    type: coupon.type,
+    value: coupon.value,
+    maxDiscountPaise: coupon.maxDiscountPaise,
+    subtotalPaise: subtotal,
+  })
 
   return {
     isValid: true,

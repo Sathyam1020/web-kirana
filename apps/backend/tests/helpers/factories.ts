@@ -212,18 +212,33 @@ export async function loginSeededAdmin(app: Express): Promise<AuthedCaller> {
 
 /**
  * Removes everything this test run created. Order matters because of FK
- * Restrict relationships (Category ← Product, User ← Store etc.). Cascades
- * handle the rest (User → Store, Address, Session, Account, …).
+ * Restrict relationships:
+ *   - Order.customerId / Order.storeId are Restrict → a test user's orders
+ *     (as customer, or via their store) must go before the user. Deleting an
+ *     Order cascades its items, status history, and coupon redemption.
+ *   - Coupon.createdById is Restrict → store coupons a test owner created must
+ *     go before the owner (their redemptions are already gone with the orders).
+ * Everything else cascades from User (Store, Address, Session, Account, …).
  */
 export async function cleanupRun(): Promise<void> {
-  await prisma.user.deleteMany({
+  const testUsers = await prisma.user.findMany({
     where: {
       OR: [
         { phone: { startsWith: PHONE_PREFIX } },
         { email: { endsWith: `@${EMAIL_DOMAIN}` } },
       ],
     },
+    select: { id: true },
   })
+  const ids = testUsers.map((u) => u.id)
+
+  if (ids.length > 0) {
+    await prisma.order.deleteMany({
+      where: { OR: [{ customerId: { in: ids } }, { store: { ownerId: { in: ids } } }] },
+    })
+    await prisma.coupon.deleteMany({ where: { createdById: { in: ids } } })
+    await prisma.user.deleteMany({ where: { id: { in: ids } } })
+  }
 
   // Tests that create categories use the TEST_PREFIX to mark them.
   await prisma.category.deleteMany({

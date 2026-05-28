@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
 import { bannersOwnerRouter } from "../banners/banners.routes.js"
 import { couponsOwnerRouter } from "../coupons/coupons.routes.js"
+import { ordersOwnerRouter } from "../orders/orders.routes.js"
 import { productsRouter } from "../products/products.routes.js"
 import * as subcontroller from "../subcategories/subcategories.controller.js"
 import { publicListSubcategoriesParamSchema } from "../subcategories/subcategories.schemas.js"
@@ -119,3 +120,6 @@ storesRouter.use("/me/coupons", couponsOwnerRouter)
 
 // Phase 6.8 — promotional banners (owner-managed, one active per store).
 storesRouter.use("/me/banners", bannersOwnerRouter)
+
+// Phase 7 — owner order inbox (read-only this phase).
+storesRouter.use("/me/orders", ordersOwnerRouter)

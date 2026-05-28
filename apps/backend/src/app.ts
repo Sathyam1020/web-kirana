@@ -14,6 +14,7 @@ import { adminRouter } from "./modules/admin/admin.routes.js"
 import { categoriesPublicRouter } from "./modules/categories/categories.routes.js"
 import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
 import { departmentsPublicRouter } from "./modules/departments/departments.routes.js"
+import { ordersRouter } from "./modules/orders/orders.routes.js"
 import { searchRouter } from "./modules/search/search.routes.js"
 import { storesPublicRouter, storesRouter } from "./modules/stores/stores.routes.js"
 import { uploadsRouter } from "./modules/uploads/uploads.routes.js"
@@ -78,6 +79,7 @@ export function buildApp(): Express {
   v1.use("/categories", categoriesPublicRouter)
   v1.use("/coupons", couponsPublicRouter)
   v1.use("/departments", departmentsPublicRouter)
+  v1.use("/orders", ordersRouter)
   v1.use("/search", searchRouter)
   v1.use("/uploads", uploadsRouter)
   // Phase 5: public discovery mounted BEFORE owner-side router. Explicit

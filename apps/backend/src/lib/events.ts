@@ -91,6 +91,15 @@ export type DomainEvent =
       fromSubcategoryId: string
       toSubcategoryId: string
     }
+  // Phase 7 — emitted after a successful order placement. Phase 8/10
+  // notification consumers subscribe to this later.
+  | {
+      type: "order.placed"
+      orderId: string
+      storeId: string
+      customerId: string
+      totalPaise: number
+    }
 
 type EventType = DomainEvent["type"]
 type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>
