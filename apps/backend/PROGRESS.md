@@ -57,8 +57,9 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 6.7   | Cloudinary signed uploads                                          | ✅ done        | `150f0db` |
 | 6.8   | Product-level discounts (effective price + coupon stacking)        | ✅ done        | `bc4087a` |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ✅ done        | `3b23b45` |
-| 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
-| 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
+| 8     | Order lifecycle (owner state machine + customer cancel + tracker)  | ✅ done        | `6fa6549` |
+| 8.5   | Staff (was "Riders") — self-signup, apply-to-store, owner approval | ⏳ pending     |           |
+| 8.6   | Staff assignment to deliveries + staff app (after lifecycle)       | ⏳ pending     |           |
 | 9     | Socket.IO real-time (rooms, handshake auth)                        | ⏳ pending     |           |
 | 10    | Notifications — WhatsApp Cloud API + web-push + webhook            | ⏳ pending     |           |
 | 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
@@ -72,7 +73,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 - `apps/customer` and `apps/owner` PWAs — not started; only `apps/web`
   (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
   comma-separated list so future frontends just append their origin.
-- **`apps/rider`** PWA — implied by the Phase 7.5 plan below.
+- **`apps/staff`** PWA (was "apps/rider") — implied by the Phase 8.5 Staff plan below.
 
 ---
 
@@ -230,12 +231,16 @@ rows got there.
 
 ---
 
-## Phase 7.5 — Riders (locked design, not yet implemented)
+## Phase 8.5 — Staff (locked design, not yet implemented)
 
-> Scope addition relative to the original build prompt (which said
-> "Out of scope: rider fleet"). User explicitly added this; design below
-> is locked. Implementation is deferred until Phase 7 ships and we have
-> orders to test rider participation against.
+> RENAMED + RESEQUENCED: this was "Phase 7.5 — Riders". Per the user it's now
+> called **Staff**, and it's sequenced **after Phase 8** (the lifecycle), since
+> staff-to-delivery assignment hooks into the lifecycle Phase 8 builds. Read
+> every "rider" below as "staff"; the Role/ActorType enum value will be
+> `STAFF` (not `RIDER`), the model `StaffApplication`, the app `apps/staff`,
+> and routes `/v1/staff/*`. A clean PHASE8.5.md will supersede this spec when
+> we build it. The flow itself (self-signup → apply-to-store → owner approval →
+> claim/deliver) is unchanged.
 
 ### Flow
 1. **Rider self-signs-up** via existing `POST /v1/auth/signup` with
