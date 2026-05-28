@@ -111,6 +111,32 @@ async function createStore(body: typeof STORE_A, isOpen = true): Promise<OwnedSt
   return { owner, storeId }
 }
 
+/**
+ * Phase 6.6: products now FK to Subcategory (L3). For test ergonomics we
+ * still accept categoryId in overrides — under the hood we ensure a
+ * matching store-owned Subcategory exists (creating one if needed) and
+ * pass its id to the create endpoint.
+ */
+async function ensureSubcategoryForStore(
+  storeId: string,
+  categoryId: string,
+): Promise<string> {
+  const cat = await prisma.category.findUniqueOrThrow({
+    where: { id: categoryId },
+    select: { name: true },
+  })
+  const existing = await prisma.subcategory.findUnique({
+    where: { storeId_categoryId_name: { storeId, categoryId, name: cat.name } },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+  const created = await prisma.subcategory.create({
+    data: { storeId, categoryId, name: cat.name, displayOrder: 0, isAvailable: true },
+    select: { id: true },
+  })
+  return created.id
+}
+
 async function addProduct(
   owner: AuthedCaller,
   overrides: Partial<{
@@ -118,14 +144,26 @@ async function addProduct(
     pricePaise: number
     unit: string
     categoryId: string
+    subcategoryId: string
     isAvailable: boolean
   }> = {},
 ): Promise<string> {
+  // Resolve the storeId for this owner so we can find/create a sub.
+  const store = await prisma.store.findUniqueOrThrow({
+    where: { ownerId: owner.user.id },
+    select: { id: true },
+  })
+  const subcategoryId =
+    overrides.subcategoryId ??
+    (await ensureSubcategoryForStore(
+      store.id,
+      overrides.categoryId ?? seededCategoryId,
+    ))
   const body = {
     name: overrides.name ?? "Aashirvaad Atta 5kg",
     pricePaise: overrides.pricePaise ?? 32500,
     unit: overrides.unit ?? "KG",
-    categoryId: overrides.categoryId ?? seededCategoryId,
+    subcategoryId,
     isAvailable: overrides.isAvailable ?? true,
   }
   const res = await api()
@@ -257,7 +295,7 @@ describe("GET /v1/stores/nearby", () => {
 // --- /v1/stores/:id ----------------------------------------------------
 
 describe("GET /v1/stores/:id", () => {
-  it("anonymous: 200 with store + featuredProducts + categories", async () => {
+  it("anonymous: 200 with store + departments + featuredProducts + categorySections", async () => {
     const { owner, storeId } = await createStore(STORE_A)
     const productId = await addProduct(owner, { name: "Featured Atta" })
     // Pin it as featured via the owner endpoint so we exercise the real path.
@@ -270,13 +308,34 @@ describe("GET /v1/stores/:id", () => {
     expect(res.status).toBe(200)
     expect(res.body.data.store.id).toBe(storeId)
     expect(res.body.data.store.name).toBe(STORE_A.name)
+
+    // Featured row.
     expect(Array.isArray(res.body.data.featuredProducts)).toBe(true)
-    const featuredIds = (res.body.data.featuredProducts as { id: string; isFeatured: boolean }[]).map((p) => p.id)
+    const featuredIds = (res.body.data.featuredProducts as { id: string }[]).map((p) => p.id)
     expect(featuredIds).toContain(productId)
-    expect(Array.isArray(res.body.data.categories)).toBe(true)
-    const cats = res.body.data.categories as { id: string; name: string; productCount: number }[]
-    expect(cats.length).toBeGreaterThanOrEqual(1)
-    expect(cats[0]!.productCount).toBeGreaterThanOrEqual(1)
+
+    // Phase 6.6 — departments[] grid (each dept has nested categories[]).
+    expect(Array.isArray(res.body.data.departments)).toBe(true)
+    const depts = res.body.data.departments as {
+      id: string
+      name: string
+      categories: { id: string; name: string }[]
+    }[]
+    expect(depts.length).toBeGreaterThanOrEqual(1)
+    expect(depts[0]!.categories.length).toBeGreaterThanOrEqual(1)
+
+    // Phase 6.6 — categorySections[] (top 8, each with products).
+    expect(Array.isArray(res.body.data.categorySections)).toBe(true)
+    const sections = res.body.data.categorySections as {
+      category: { id: string; name: string }
+      products: { id: string }[]
+      totalCount: number
+    }[]
+    expect(sections.length).toBeGreaterThanOrEqual(1)
+    expect(sections[0]!.totalCount).toBeGreaterThanOrEqual(1)
+    expect(sections[0]!.products.length).toBeGreaterThanOrEqual(1)
+
+    expect(typeof res.body.data.totalCategoryCount).toBe("number")
   })
 
   it("featuredProducts honor featuredOrder ASC (NULLS LAST), then createdAt DESC", async () => {
@@ -398,7 +457,7 @@ describe("GET /v1/stores/:id/products", () => {
     expect(ids).not.toContain(deleted)
   })
 
-  it("category= filter narrows the result", async () => {
+  it("categoryId= filter narrows the result", async () => {
     const { owner, storeId } = await createStore(STORE_A)
     // Two distinct categories from seed.
     const cats = await prisma.category.findMany({ take: 2, orderBy: { displayOrder: "asc" } })
@@ -407,7 +466,7 @@ describe("GET /v1/stores/:id/products", () => {
     const pA = await addProduct(owner, { name: "Cat A item", categoryId: catA.id })
     const pB = await addProduct(owner, { name: "Cat B item", categoryId: catB.id })
 
-    const res = await api().get(`/v1/stores/${storeId}/products?category=${catA.id}`)
+    const res = await api().get(`/v1/stores/${storeId}/products?categoryId=${catA.id}`)
     expect(res.status).toBe(200)
     const ids = (res.body.data.items as { id: string }[]).map((p) => p.id)
     expect(ids).toContain(pA)
@@ -446,7 +505,7 @@ describe("GET /v1/stores/:id/products", () => {
     }
   })
 
-  it("q= + category= both apply", async () => {
+  it("q= + categoryId= both apply", async () => {
     const { owner, storeId } = await createStore(STORE_A)
     const cats = await prisma.category.findMany({ take: 2, orderBy: { displayOrder: "asc" } })
     const catA = cats[0]!
@@ -454,7 +513,7 @@ describe("GET /v1/stores/:id/products", () => {
     await addProduct(owner, { name: "Atta in catA", categoryId: catA.id })
     await addProduct(owner, { name: "Atta in catB", categoryId: catB.id })
 
-    const res = await api().get(`/v1/stores/${storeId}/products?q=atta&category=${catA.id}`)
+    const res = await api().get(`/v1/stores/${storeId}/products?q=atta&categoryId=${catA.id}`)
     expect(res.status).toBe(200)
     for (const item of res.body.data.items as { categoryId: string }[]) {
       expect(item.categoryId).toBe(catA.id)

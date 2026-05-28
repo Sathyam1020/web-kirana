@@ -30,8 +30,13 @@ const searchAliasesSchema = z
     Array.from(new Set(arr.map((a) => a.toLowerCase()))), // dedupe, lowercase
   )
 
+/**
+ * Phase 6.6 — products FK to Subcategory (L3), not Category. The admin
+ * L2/L1 are reachable via JOIN through Subcategory.categoryId on the read
+ * path; on writes the owner picks a sub they own (verified server-side).
+ */
 export const createProductBodySchema = z.strictObject({
-  categoryId: z.string().min(1).max(40),
+  subcategoryId: z.string().min(1).max(40),
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(1000).optional(),
   // ₹1 floor, ₹50,000 ceiling. Sub-rupee items can be re-enabled by dropping
@@ -46,7 +51,8 @@ export type CreateProductBody = z.infer<typeof createProductBodySchema>
 
 export const updateProductBodySchema = z
   .object({
-    categoryId: z.string().min(1).max(40).optional(),
+    // Moving across subs goes through POST /:id/move (see moveProductBodySchema).
+    // PATCH is field-edits only.
     name: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().max(1000).nullable().optional(),
     pricePaise: z.number().int().min(100).max(5_000_000).optional(),
@@ -57,6 +63,15 @@ export const updateProductBodySchema = z
   })
   .strict()
 export type UpdateProductBody = z.infer<typeof updateProductBodySchema>
+
+/**
+ * Phase 6.6 — move a product between subcategories (within the same
+ * store). Both source and target subs must belong to the calling owner.
+ */
+export const moveProductBodySchema = z.strictObject({
+  subcategoryId: z.string().min(1).max(40),
+})
+export type MoveProductBody = z.infer<typeof moveProductBodySchema>
 
 export const productIdParamSchema = z.strictObject({
   id: z.string().min(1).max(40),
@@ -75,7 +90,11 @@ export type FeatureProductBody = z.infer<typeof featureProductBodySchema>
 export const listProductsQuerySchema = z.strictObject({
   cursor: z.string().min(1).max(40).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
-  category: z.string().min(1).max(40).optional(),
+  // Phase 6.6: filter by L3 (subcategoryId) for "products in this sub"
+  // or L2 (categoryId) for "products under this admin category, across
+  // all of my subs under it". Both optional, can combine.
+  subcategoryId: z.string().min(1).max(40).optional(),
+  categoryId: z.string().min(1).max(40).optional(),
   available: optionalBoolFromQuery,
   includeInactive: boolFromQuery
     .optional()

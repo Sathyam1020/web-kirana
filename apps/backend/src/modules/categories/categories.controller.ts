@@ -6,13 +6,15 @@ import * as service from "./categories.service.js"
 import type {
   CategoryIdParam,
   CreateCategoryBody,
+  ListCategoriesQuery,
   UpdateCategoryBody,
 } from "./categories.schemas.js"
 
 // Public ---------------------------------------------------------------
 
-export async function list(_req: Request, res: Response): Promise<void> {
-  const categories = await service.listCategories()
+export async function list(req: Request, res: Response): Promise<void> {
+  const query = (getValidated(req).query ?? {}) as ListCategoriesQuery
+  const categories = await service.listCategories(query)
   sendData(res, { categories })
 }
 

@@ -4,11 +4,15 @@ import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
 import { couponsOwnerRouter } from "../coupons/coupons.routes.js"
 import { productsRouter } from "../products/products.routes.js"
+import * as subcontroller from "../subcategories/subcategories.controller.js"
+import { publicListSubcategoriesParamSchema } from "../subcategories/subcategories.schemas.js"
+import { subcategoriesOwnerRouter } from "../subcategories/subcategories.routes.js"
 import * as controller from "./stores.controller.js"
 import {
   createStoreBodySchema,
   nearbyQuerySchema,
   openToggleBodySchema,
+  storeCategoriesQuerySchema,
   storeIdParamSchema,
   storeProductsQuerySchema,
   updateStoreBodySchema,
@@ -44,6 +48,20 @@ storesPublicRouter.get(
   "/nearby",
   validate({ query: nearbyQuerySchema }),
   controller.listNearby,
+)
+// Phase 6.6 — public category-page left rail. Mounted BEFORE /:id so
+// the `/:id/categories/...` paths don't get shadowed by the /:id wildcard.
+storesPublicRouter.get(
+  "/:id/categories/:categoryId/subcategories",
+  validate({ params: publicListSubcategoriesParamSchema }),
+  subcontroller.publicListForStoreCategory,
+)
+// Lazy-paginated continuation of categorySections in the store-detail
+// response. The FE calls this when scrolling past the initial 8 sections.
+storesPublicRouter.get(
+  "/:id/categories",
+  validate({ params: storeIdParamSchema, query: storeCategoriesQuerySchema }),
+  controller.listPublicCategorySections,
 )
 storesPublicRouter.get(
   "/:id/products",
@@ -89,6 +107,10 @@ storesRouter.patch(
 // requireOwnStore middleware. productsRouter applies requireOwnStore
 // internally.
 storesRouter.use("/me/products", productsRouter)
+
+// Phase 6.6 — owner-side subcategory CRUD (L3, store-owned). Same /me/
+// scoping pattern; the inner router applies requireOwnStore itself.
+storesRouter.use("/me/subcategories", subcategoriesOwnerRouter)
 
 // Store-scoped coupons (owner-created, STORE scope only). The owner router
 // self-gates with requireAuth + requireRole(OWNER) + requireOwnStore.

@@ -238,3 +238,47 @@ let nextCategorySuffix = 1
 export function nextCategoryName(label = "Cat"): string {
   return `${TEST_CATEGORY_PREFIX}${label}-${RUN_ID}-${nextCategorySuffix++}`
 }
+
+// --- Phase 6.6 — taxonomy helpers ---------------------------------------
+
+/**
+ * Find or create a Subcategory under (storeId, categoryId) named after the
+ * Category itself. Lets the older tests keep passing a categoryId while
+ * the new Product create endpoint requires subcategoryId.
+ *
+ * Idempotent — re-callable from within the same test without dup-key risk.
+ */
+export async function ensureSubcategoryForStore(
+  storeId: string,
+  categoryId: string,
+): Promise<string> {
+  const cat = await prisma.category.findUniqueOrThrow({
+    where: { id: categoryId },
+    select: { name: true },
+  })
+  const existing = await prisma.subcategory.findUnique({
+    where: { storeId_categoryId_name: { storeId, categoryId, name: cat.name } },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+  const created = await prisma.subcategory.create({
+    data: { storeId, categoryId, name: cat.name, displayOrder: 0, isAvailable: true },
+    select: { id: true },
+  })
+  return created.id
+}
+
+/**
+ * Convenience for OWNER-authed test calls — looks up the caller's storeId
+ * and resolves a subcategory under the given admin category.
+ */
+export async function ensureSubcategoryForOwner(
+  owner: AuthedCaller,
+  categoryId: string,
+): Promise<string> {
+  const store = await prisma.store.findUniqueOrThrow({
+    where: { ownerId: owner.user.id },
+    select: { id: true },
+  })
+  return ensureSubcategoryForStore(store.id, categoryId)
+}

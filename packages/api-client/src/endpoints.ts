@@ -8,6 +8,8 @@ import type {
   CouponListResult,
   CouponScope,
   CouponType,
+  Department,
+  DepartmentWithCategories,
   NearbyResult,
   OwnerProductsListResult,
   PendingOwner,
@@ -15,9 +17,12 @@ import type {
   ProductOwnerView,
   SearchResult,
   SessionResult,
+  StoreCategorySectionsResult,
   StoreDetailResult,
   StoreOwnerView,
   StoreProductsResult,
+  SubcategoryOwnerView,
+  SubcategoryPublicView,
   SuccessEnvelope,
   Unit,
 } from "./types"
@@ -79,8 +84,9 @@ export type UpdateStoreBody = Partial<{
 
 // ---------- Products (owner) --------------------------------------------
 
+/** Phase 6.6 — products FK to Subcategory (L3), not Category. */
 export interface CreateProductBody {
-  categoryId: string
+  subcategoryId: string
   name: string
   description?: string
   pricePaise: number
@@ -90,8 +96,11 @@ export interface CreateProductBody {
   searchAliases?: string[]
 }
 
+/**
+ * PATCH no longer accepts subcategoryId — to move a product between subs,
+ * use POST /v1/stores/me/products/:id/move with MoveProductBody.
+ */
 export type UpdateProductBody = Partial<{
-  categoryId: string
   name: string
   description: string | null
   pricePaise: number
@@ -101,14 +110,55 @@ export type UpdateProductBody = Partial<{
   searchAliases: string[]
 }>
 
+export interface MoveProductBody {
+  subcategoryId: string
+}
+
 export interface OwnerProductsQuery {
   cursor?: string
   limit?: number
-  category?: string
+  // Phase 6.6 — both filters available; both compose.
+  categoryId?: string
+  subcategoryId?: string
   available?: boolean
   includeInactive?: boolean
   q?: string
 }
+
+// ---------- Subcategories (owner) ---------------------------------------
+
+export interface CreateSubcategoryBody {
+  categoryId: string
+  name: string
+  displayOrder?: number
+}
+
+export type UpdateSubcategoryBody = Partial<{
+  name: string
+  displayOrder: number
+}>
+
+export interface SetSubcategoryAvailabilityBody {
+  isAvailable: boolean
+}
+
+export interface OwnerSubcategoriesQuery {
+  categoryId?: string
+}
+
+// ---------- Departments (admin + public) --------------------------------
+
+export interface CreateDepartmentBody {
+  name: string
+  displayOrder?: number
+  iconUrl?: string
+}
+
+export type UpdateDepartmentBody = Partial<{
+  name: string
+  displayOrder: number
+  iconUrl: string | null
+}>
 
 // ---------- Stores (public) ---------------------------------------------
 
@@ -123,7 +173,14 @@ export interface NearbyQuery {
 
 export interface StoreProductsQuery {
   q?: string
-  category?: string
+  // Phase 6.6 — both filters; both compose.
+  categoryId?: string
+  subcategoryId?: string
+  page?: number
+  limit?: number
+}
+
+export interface StoreCategoriesQuery {
   page?: number
   limit?: number
 }
@@ -136,6 +193,7 @@ export interface SearchProductsQuery {
   limit?: number
   storeId?: string
   categoryId?: string
+  subcategoryId?: string
   lat?: number
   lng?: number
   radiusMeters?: number
@@ -190,10 +248,17 @@ export interface PreviewCouponBody {
 
 // ---------- Admin -------------------------------------------------------
 
+/** Phase 6.6 — category must live under a department. */
 export interface CreateCategoryBody {
+  departmentId: string
   name: string
   displayOrder?: number
   iconUrl?: string
+}
+
+/** Public list query supports narrowing to one department. */
+export interface ListCategoriesQuery {
+  departmentId?: string
 }
 
 export type UpdateCategoryBody = Partial<{
@@ -238,7 +303,14 @@ export function buildApi(http: AxiosInstance) {
        */
       signup: async (body: SignupBody): Promise<AuthSuccess> => {
         try {
-          const res = await http.post<AuthSuccess>("/v1/auth/sign-up/email", body)
+          // rememberMe: true keeps the session cookie persistent across
+          // browser restarts. Without it, better-auth sets the
+          // `kirana.dont_remember` cookie and the session becomes
+          // browser-lifetime only.
+          const res = await http.post<AuthSuccess>("/v1/auth/sign-up/email", {
+            ...body,
+            rememberMe: true,
+          })
           return res.data
         } catch (err) {
           if (err instanceof Error && err.name === "ApiError") {
@@ -251,7 +323,12 @@ export function buildApi(http: AxiosInstance) {
         }
       },
       login: async (body: LoginBody): Promise<AuthSuccess> => {
-        const res = await http.post<AuthSuccess>("/v1/auth/sign-in/email", body)
+        // rememberMe — same reasoning as signup above. Persistent session,
+        // no `dont_remember` cookie.
+        const res = await http.post<AuthSuccess>("/v1/auth/sign-in/email", {
+          ...body,
+          rememberMe: true,
+        })
         return res.data
       },
       logout: () => http.post("/v1/auth/sign-out").then(() => undefined),
@@ -275,12 +352,75 @@ export function buildApi(http: AxiosInstance) {
       },
     },
 
+    departments: {
+      // GET /v1/departments → { departments: Department[] }
+      // GET /v1/departments?nested=true → { departments: DepartmentWithCategories[] }
+      list: (opts: { nested?: boolean } = {}) =>
+        pluck<Department[], "departments">(
+          http.get("/v1/departments", {
+            params: opts.nested ? { nested: "true" } : {},
+          }),
+          "departments",
+        ),
+      listNested: () =>
+        pluck<DepartmentWithCategories[], "departments">(
+          http.get("/v1/departments", { params: { nested: "true" } }),
+          "departments",
+        ),
+      adminCreate: (body: CreateDepartmentBody) =>
+        pluck<Department, "department">(
+          http.post("/v1/admin/departments", body),
+          "department",
+        ),
+      adminUpdate: (id: string, body: UpdateDepartmentBody) =>
+        pluck<Department, "department">(
+          http.patch(`/v1/admin/departments/${id}`, body),
+          "department",
+        ),
+    },
+
     categories: {
       // GET /v1/categories → { categories: Category[] }
-      list: () =>
+      list: (q: ListCategoriesQuery = {}) =>
         pluck<Category[], "categories">(
-          http.get("/v1/categories"),
+          http.get("/v1/categories", { params: serializeQuery(q) }),
           "categories",
+        ),
+    },
+
+    subcategories: {
+      // Owner-side CRUD under /v1/stores/me/subcategories.
+      ownerList: (q: OwnerSubcategoriesQuery = {}) =>
+        pluck<SubcategoryOwnerView[], "subcategories">(
+          http.get("/v1/stores/me/subcategories", {
+            params: serializeQuery(q),
+          }),
+          "subcategories",
+        ),
+      ownerCreate: (body: CreateSubcategoryBody) =>
+        pluck<SubcategoryOwnerView, "subcategory">(
+          http.post("/v1/stores/me/subcategories", body),
+          "subcategory",
+        ),
+      ownerUpdate: (id: string, body: UpdateSubcategoryBody) =>
+        pluck<SubcategoryOwnerView, "subcategory">(
+          http.patch(`/v1/stores/me/subcategories/${id}`, body),
+          "subcategory",
+        ),
+      ownerRemove: (id: string) =>
+        http.delete(`/v1/stores/me/subcategories/${id}`).then(() => undefined),
+      ownerSetAvailability: (id: string, isAvailable: boolean) =>
+        pluck<SubcategoryOwnerView, "subcategory">(
+          http.patch(`/v1/stores/me/subcategories/${id}/availability`, {
+            isAvailable,
+          } satisfies SetSubcategoryAvailabilityBody),
+          "subcategory",
+        ),
+      // Public — for the customer category-page left rail.
+      publicForStoreCategory: (storeId: string, categoryId: string) =>
+        pluck<SubcategoryPublicView[], "subcategories">(
+          http.get(`/v1/stores/${storeId}/categories/${categoryId}/subcategories`),
+          "subcategories",
         ),
     },
 
@@ -295,6 +435,13 @@ export function buildApi(http: AxiosInstance) {
       products: (id: string, q: StoreProductsQuery = {}) =>
         unwrap<StoreProductsResult>(
           http.get(`/v1/stores/${id}/products`, { params: serializeQuery(q) }),
+        ),
+      // Phase 6.6 — paginated continuation of categorySections.
+      categories: (id: string, q: StoreCategoriesQuery = {}) =>
+        unwrap<StoreCategorySectionsResult>(
+          http.get(`/v1/stores/${id}/categories`, {
+            params: serializeQuery(q),
+          }),
         ),
 
       // owner — wrapped under "store"
@@ -356,6 +503,12 @@ export function buildApi(http: AxiosInstance) {
       unfeature: (id: string) =>
         pluck<ProductOwnerView, "product">(
           http.delete(`/v1/stores/me/products/${id}/feature`),
+          "product",
+        ),
+      // Phase 6.6 — relocate a product between subs in the same store.
+      move: (id: string, body: MoveProductBody) =>
+        pluck<ProductOwnerView, "product">(
+          http.post(`/v1/stores/me/products/${id}/move`, body),
           "product",
         ),
     },

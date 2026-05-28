@@ -37,14 +37,54 @@ export interface SessionResult {
   }
 }
 
-// --- Categories ---------------------------------------------------------
+// --- Taxonomy (Phase 6.6) ----------------------------------------------
+//   L1 Department (admin) → L2 Category (admin) → L3 Subcategory (store)
+//   → L4 Product (store FK on subcategory)
 
-export interface Category {
+export interface Department {
   id: string
   name: string
   displayOrder: number
   iconUrl: string | null
   createdAt: string
+}
+
+export interface DepartmentWithCategories extends Department {
+  categories: Array<{
+    id: string
+    name: string
+    displayOrder: number
+    iconUrl: string | null
+  }>
+}
+
+export interface Category {
+  id: string
+  departmentId: string
+  name: string
+  displayOrder: number
+  iconUrl: string | null
+  createdAt: string
+}
+
+export interface SubcategoryOwnerView {
+  id: string
+  storeId: string
+  categoryId: string
+  name: string
+  displayOrder: number
+  isAvailable: boolean
+  productCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SubcategoryPublicView {
+  id: string
+  categoryId: string
+  name: string
+  displayOrder: number
+  productCount: number
 }
 
 // --- Stores -------------------------------------------------------------
@@ -111,11 +151,19 @@ export const UNIT_LABELS: Record<Unit, string> = {
   DOZEN: "dozen",
 }
 
+/**
+ * Phase 6.6 — product views carry the full taxonomy chain (L1+L2+L3) so
+ * tile UI can render breadcrumbs without an extra round-trip.
+ */
 export interface ProductOwnerView {
   id: string
   storeId: string
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -135,8 +183,12 @@ export interface ProductOwnerView {
 export interface ProductPublicView {
   id: string
   storeId: string
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -147,16 +199,61 @@ export interface ProductPublicView {
   featuredOrder: number | null
 }
 
+/** Kept for back-compat (admin coupon tooling); same shape as before. */
 export interface CategoryCount {
   id: string
   name: string
   productCount: number
 }
 
+/**
+ * Phase 6.6 — new store-detail response. The customer renders:
+ *   • departments    — Blinkit-style icon grid (each dept → its categories)
+ *   • featuredProducts — owner-pinned, capped at 20
+ *   • categorySections — first N admin Categories the store carries,
+ *                        each with top M products + totalCount.
+ *                        Sections beyond N come from
+ *                        GET /v1/stores/:id/categories.
+ */
+export interface StoreDetailDepartmentView {
+  id: string
+  name: string
+  displayOrder: number
+  iconUrl: string | null
+  categories: Array<{
+    id: string
+    name: string
+    displayOrder: number
+    iconUrl: string | null
+  }>
+}
+
+export interface CategorySection {
+  category: {
+    id: string
+    name: string
+    displayOrder: number
+    iconUrl: string | null
+  }
+  products: ProductPublicView[]
+  totalCount: number
+  hasMore: boolean
+}
+
 export interface StoreDetailResult {
   store: StorePublicView
+  departments: StoreDetailDepartmentView[]
   featuredProducts: ProductPublicView[]
-  categories: CategoryCount[]
+  categorySections: CategorySection[]
+  totalCategoryCount: number
+}
+
+export interface StoreCategorySectionsResult {
+  items: CategorySection[]
+  page: number
+  limit: number
+  hasMore: boolean
+  totalCategoryCount: number
 }
 
 export interface StoreProductsResult {
@@ -178,8 +275,13 @@ export interface SearchHit {
   id: string
   storeId: string
   storeName: string
+  // Phase 6.6 — full taxonomy chain on every hit.
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number

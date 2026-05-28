@@ -37,10 +37,36 @@ export function AuthProvider({ baseUrl, children }: ProviderProps) {
         if (session !== null && session.user !== null) {
           setUser(session.user)
         } else {
-          markAnonymous()
+          // No live session — clear() not markAnonymous() so any stale
+          // persisted user (left over from a prior signin with a different
+          // role, or pre-6.5 schema) gets wiped. Otherwise the auth guard
+          // would see the stale user + status=anonymous and either flag a
+          // wrong role or, worse, the persist `merge` hook would re-mark
+          // status=authenticated on the next reload, looping.
+          clear()
         }
-      } catch {
-        if (!cancelled) clear()
+      } catch (err) {
+        if (cancelled) return
+        // Only treat a definite UNAUTHORIZED as "log them out". Network
+        // blips, 500s, CORS errors, etc. leave the persisted user intact
+        // so the UI keeps working until the next genuine signout — we
+        // were previously signing the user out on any error, which made
+        // the app look like it logged itself out every time Neon hiccupped
+        // or the dev server briefly restarted.
+        const e = err as { status?: number; code?: string } | undefined
+        const isUnauthorized =
+          e?.status === 401 || e?.code === "UNAUTHORIZED"
+        if (isUnauthorized) {
+          clear()
+        } else {
+          // Best-effort: keep whatever the persist layer hydrated, and
+          // demote loading → anonymous only if we have no user at all
+          // (so the guard still routes to /login instead of spinning
+          // forever).
+          if (useAuthStore.getState().user === null) {
+            markAnonymous()
+          }
+        }
       }
     }
 

@@ -10,7 +10,9 @@ import request from "supertest"
 import { buildApp } from "../src/app.js"
 import { prisma } from "../src/db/prisma.js"
 import {
+  type AuthedCaller,
   cleanupRun,
+  ensureSubcategoryForOwner,
   loginSeededAdmin,
   signupApprovedOwner,
   signupCustomer,
@@ -30,6 +32,11 @@ const baseStoreBody = {
 }
 
 let categoryId: string
+
+/** Convenience: resolve the owner's subcategory under the shared seed cat. */
+async function sub(owner: AuthedCaller): Promise<string> {
+  return ensureSubcategoryForOwner(owner, categoryId)
+}
 
 beforeAll(async () => {
   const cats = await prisma.category.findMany({ take: 1, orderBy: { displayOrder: "asc" } })
@@ -53,7 +60,7 @@ describe("Featured products (owner)", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
-      .send({ categoryId, name: "Featurable Product", pricePaise: 1000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(owner), name: "Featurable Product", pricePaise: 1000, unit: "PIECE" })
     const id = created.body.data.product.id
 
     const feat = await api()
@@ -78,7 +85,7 @@ describe("Featured products (owner)", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
-      .send({ categoryId, name: "Default Order", pricePaise: 1000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(owner), name: "Default Order", pricePaise: 1000, unit: "PIECE" })
 
     const feat = await api()
       .post(`/v1/stores/me/products/${created.body.data.product.id}/feature`)
@@ -93,7 +100,7 @@ describe("Featured products (owner)", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", ownerA.cookieHeader)
-      .send({ categoryId, name: "A's product", pricePaise: 1000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(ownerA), name: "A's product", pricePaise: 1000, unit: "PIECE" })
     const idOfA = created.body.data.product.id
 
     const ownerB = await signupApprovedOwner(app, "Feat B")
@@ -125,7 +132,7 @@ describe("Promoted products (admin)", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
-      .send({ categoryId, name: "Promo Candidate", pricePaise: 1000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(owner), name: "Promo Candidate", pricePaise: 1000, unit: "PIECE" })
     const productId = created.body.data.product.id
 
     const admin = await loginSeededAdmin(app)
@@ -152,7 +159,7 @@ describe("Promoted products (admin)", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
-      .send({ categoryId, name: "Bad Promo", pricePaise: 1000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(owner), name: "Bad Promo", pricePaise: 1000, unit: "PIECE" })
 
     const admin = await loginSeededAdmin(app)
     const past = new Date(Date.now() - 1000).toISOString()
@@ -374,7 +381,7 @@ describe("POST /v1/coupons/preview", () => {
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
-      .send({ categoryId, name: "Preview Item", pricePaise: 5000, unit: "PIECE" })
+      .send({ subcategoryId: await sub(owner), name: "Preview Item", pricePaise: 5000, unit: "PIECE" })
     const productId = created.body.data.product.id
 
     const customer = await signupCustomer(app)

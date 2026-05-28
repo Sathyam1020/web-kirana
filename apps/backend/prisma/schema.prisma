@@ -192,14 +192,70 @@ model Verification {
 
 // --- Catalog ------------------------------------------------------------
 
-model Category {
+// ====================================================================
+// Phase 6.6 — Taxonomy (4 levels)
+// --------------------------------------------------------------------
+//   L1 Department  (admin) — Grocery & Kitchen, Snacks & Drinks, ...
+//   L2 Category    (admin) — Atta, Rice & Dal, Dairy & Eggs, ...
+//   L3 Subcategory (store) — store-owned narrower groupings under a L2
+//   L4 Product     (store) — FKs to Subcategory, not Category directly
+//
+// Authority split: admin owns L1 + L2 (global, consistent across stores);
+// owners curate L3 + L4 inside their own shelf.
+// ====================================================================
+
+model Department {
   id           String   @id @default(cuid())
   name         String   @unique
   displayOrder Int      @default(0)
   iconUrl      String?
   createdAt    DateTime @default(now())
 
+  categories Category[]
+
+  @@index([displayOrder])
+}
+
+model Category {
+  id           String     @id @default(cuid())
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+
+  name         String
+  displayOrder Int      @default(0)
+  iconUrl      String?
+  createdAt    DateTime @default(now())
+
+  subcategories Subcategory[]
+
+  // Name is unique WITHIN a department (two depts can both have "Beverages").
+  @@unique([departmentId, name])
+  @@index([departmentId, displayOrder])
+}
+
+model Subcategory {
+  id         String   @id @default(cuid())
+  storeId    String
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  name         String
+  displayOrder Int     @default(0)
+  // Bulk kill-switch — when false the subcategory disappears from
+  // customer browse + search filters even if individual products are
+  // still isAvailable=true. Owner-set via PATCH /:id/availability.
+  isAvailable  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   products Product[]
+
+  // One "Rice" sub per (storeId, categoryId) — owner can't accidentally
+  // create two duplicates under the same admin Category.
+  @@unique([storeId, categoryId, name])
+  @@index([storeId, categoryId, displayOrder])
 }
 
 model Store {
@@ -233,9 +289,10 @@ model Store {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  products Product[]
-  orders   Order[]
-  coupons  Coupon[]
+  products      Product[]
+  orders        Order[]
+  coupons       Coupon[]
+  subcategories Subcategory[]
 
   @@index([isActive, isOpen])
   @@index([city])
@@ -246,8 +303,12 @@ model Product {
   storeId String
   store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // Phase 6.6: FK shifted from Category → Subcategory. The admin
+  // category + department are reachable via JOIN (Subcategory.categoryId
+  // → Category.departmentId). Search trigger denormalizes all three
+  // names into searchVector so cross-store discovery still works.
+  subcategoryId String
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Restrict)
 
   name        String
   description String?
@@ -293,7 +354,7 @@ model Product {
   orderItems OrderItem[]
 
   @@index([storeId, isActive])
-  @@index([storeId, categoryId, isActive])
+  @@index([subcategoryId, isActive])
   @@index([storeId, isActive, isAvailable])
   // Phase 4.3 — featured pins surface first in store detail
   @@index([storeId, isFeatured, featuredOrder])

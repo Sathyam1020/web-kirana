@@ -7,6 +7,7 @@ import type {
   CreateStoreBody,
   NearbyQuery,
   OpenToggleBody,
+  StoreCategoriesQuery,
   StoreIdParam,
   StoreProductsQuery,
   UpdateStoreBody,
@@ -73,7 +74,25 @@ export async function listPublicProducts(req: Request, res: Response): Promise<v
   const query = getValidated(req).query as StoreProductsQuery
   const result = await service.listStoreProducts(params.id, {
     q: query.q,
-    category: query.category,
+    categoryId: query.categoryId,
+    subcategoryId: query.subcategoryId,
+    page: query.page,
+    limit: query.limit,
+  })
+  sendData(res, result)
+}
+
+/**
+ * Phase 6.6 — GET /v1/stores/:id/categories (paginated continuation of the
+ * initial categorySections returned by /:id).
+ */
+export async function listPublicCategorySections(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const params = getValidated(req).params as StoreIdParam
+  const query = getValidated(req).query as StoreCategoriesQuery
+  const result = await service.listStoreCategorySections(params.id, {
     page: query.page,
     limit: query.limit,
   })

@@ -7,6 +7,7 @@ import type {
   CreateProductBody,
   FeatureProductBody,
   ListProductsQuery,
+  MoveProductBody,
   ProductIdParam,
   UpdateProductBody,
 } from "./products.schemas.js"
@@ -74,5 +75,13 @@ export async function unfeature(req: Request, res: Response): Promise<void> {
   const { storeId, ownerId } = requireContext(req)
   const { id } = getValidated(req).params as ProductIdParam
   const product = await service.unfeatureProduct(storeId, ownerId, id)
+  sendData(res, { product })
+}
+
+export async function move(req: Request, res: Response): Promise<void> {
+  const { storeId, ownerId } = requireContext(req)
+  const { id } = getValidated(req).params as ProductIdParam
+  const body = req.body as MoveProductBody
+  const product = await service.moveProduct(storeId, ownerId, id, body)
   sendData(res, { product })
 }

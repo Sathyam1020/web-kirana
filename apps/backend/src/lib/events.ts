@@ -48,6 +48,49 @@ export type DomainEvent =
       addressId: string
       customerId: string
     }
+  // Phase 6.6 — taxonomy
+  | { type: "department.created"; departmentId: string; actorId: string }
+  | {
+      type: "department.updated"
+      departmentId: string
+      actorId: string
+      fields: string[]
+    }
+  | {
+      type: "subcategory.created"
+      subcategoryId: string
+      storeId: string
+      categoryId: string
+      ownerId: string
+    }
+  | {
+      type: "subcategory.updated"
+      subcategoryId: string
+      storeId: string
+      ownerId: string
+      fields: string[]
+    }
+  | {
+      type: "subcategory.deleted"
+      subcategoryId: string
+      storeId: string
+      ownerId: string
+    }
+  | {
+      type: "subcategory.availability_changed"
+      subcategoryId: string
+      storeId: string
+      ownerId: string
+      isAvailable: boolean
+    }
+  | {
+      type: "product.moved"
+      productId: string
+      storeId: string
+      ownerId: string
+      fromSubcategoryId: string
+      toSubcategoryId: string
+    }
 
 type EventType = DomainEvent["type"]
 type EventPayload<T extends EventType> = Extract<DomainEvent, { type: T }>

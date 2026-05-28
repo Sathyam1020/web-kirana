@@ -1,11 +1,16 @@
 import { prisma } from "../../db/prisma.js"
 import { events } from "../../lib/events.js"
-import { NotFoundError } from "../../lib/errors.js"
+import { NotFoundError, ValidationError } from "../../lib/errors.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
-import type { CreateCategoryBody, UpdateCategoryBody } from "./categories.schemas.js"
+import type {
+  CreateCategoryBody,
+  ListCategoriesQuery,
+  UpdateCategoryBody,
+} from "./categories.schemas.js"
 
 export interface CategoryView {
   id: string
+  departmentId: string
   name: string
   displayOrder: number
   iconUrl: string | null
@@ -14,26 +19,43 @@ export interface CategoryView {
 
 const SELECT = {
   id: true,
+  departmentId: true,
   name: true,
   displayOrder: true,
   iconUrl: true,
   createdAt: true,
 } as const
 
-export async function listCategories(): Promise<CategoryView[]> {
+export async function listCategories(
+  query: ListCategoriesQuery = {},
+): Promise<CategoryView[]> {
   return prisma.category.findMany({
+    where: query.departmentId !== undefined ? { departmentId: query.departmentId } : {},
     select: SELECT,
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
   })
+}
+
+async function assertDepartmentExists(departmentId: string): Promise<void> {
+  const dept = await prisma.department.findUnique({
+    where: { id: departmentId },
+    select: { id: true },
+  })
+  if (dept === null) {
+    throw new ValidationError("Department does not exist")
+  }
 }
 
 export async function createCategory(
   input: CreateCategoryBody,
   actorId: string,
 ): Promise<CategoryView> {
+  // Up-front existence check gives a clean 400 instead of a P2003 FK fail.
+  await assertDepartmentExists(input.departmentId)
   try {
     const created = await prisma.category.create({
       data: {
+        departmentId: input.departmentId,
         name: input.name,
         displayOrder: input.displayOrder,
         iconUrl: input.iconUrl,
@@ -58,7 +80,6 @@ export async function updateCategory(
   if (input.iconUrl !== undefined) data.iconUrl = input.iconUrl // null OK to clear
 
   if (Object.keys(data).length === 0) {
-    // No-op PATCH — return current state.
     const existing = await prisma.category.findUnique({ where: { id }, select: SELECT })
     if (existing === null) throw new NotFoundError("Category not found")
     return existing

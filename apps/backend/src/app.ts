@@ -13,6 +13,7 @@ import { addressesRouter } from "./modules/addresses/addresses.routes.js"
 import { adminRouter } from "./modules/admin/admin.routes.js"
 import { categoriesPublicRouter } from "./modules/categories/categories.routes.js"
 import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
+import { departmentsPublicRouter } from "./modules/departments/departments.routes.js"
 import { searchRouter } from "./modules/search/search.routes.js"
 import { storesPublicRouter, storesRouter } from "./modules/stores/stores.routes.js"
 
@@ -27,10 +28,24 @@ export function buildApp(): Express {
 
   app.use(httpLogger)
 
-  // IMPORTANT: better-auth handler must mount BEFORE express.json() —
-  // better-auth needs to control body parsing on its own routes. The
-  // /v1/auth/*splat catch-all matches Express 5's named-wildcard syntax.
-  app.all("/v1/auth/*splat", toNodeHandler(auth))
+  // IMPORTANT: better-auth handler MUST mount BEFORE express.json() —
+  // better-auth parses its own bodies, and an upstream json() corrupts
+  // multipart/sign-up bodies.
+  //
+  // Why `app.all` + mount-pattern instead of `app.use("/v1/auth", ...)`:
+  // mount-style strips the prefix from req.url before the handler sees it.
+  // toNodeHandler then matches against the bare path (`/sign-up/email`)
+  // which works because we also set `basePath: "/v1/auth"` in auth.ts.
+  // Either form is valid; the `app.all` form preserves req.url, which
+  // some better-auth telemetry / log lines reference.
+  //
+  // The trailing `*` is path-to-regexp's catch-all in Express 5
+  // (path-to-regexp v8). DO NOT change to `*splat` — that's the prior
+  // syntax that some older versions of path-to-regexp accept and the
+  // newer one silently drops, sending /v1/auth/get-session through to
+  // the v1 router (which has no /auth mount) and bouncing it through
+  // our error handler with a misleading FORBIDDEN envelope.
+  app.all("/v1/auth/{*splat}", toNodeHandler(auth))
 
   app.use(express.json({ limit: "1mb" }))
 
@@ -61,6 +76,7 @@ export function buildApp(): Express {
   v1.use("/addresses", addressesRouter)
   v1.use("/categories", categoriesPublicRouter)
   v1.use("/coupons", couponsPublicRouter)
+  v1.use("/departments", departmentsPublicRouter)
   v1.use("/search", searchRouter)
   // Phase 5: public discovery mounted BEFORE owner-side router. Explicit
   // GETs on storesPublicRouter (/nearby, /:id, /:id/products) handle public

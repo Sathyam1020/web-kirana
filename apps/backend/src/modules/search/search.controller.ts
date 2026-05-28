@@ -13,6 +13,7 @@ export async function publicSearch(req: Request, res: Response): Promise<void> {
     limit: query.limit,
     storeId: query.storeId,
     categoryId: query.categoryId,
+    subcategoryId: query.subcategoryId,
     lat: query.lat,
     lng: query.lng,
     radiusMeters: query.radiusMeters,

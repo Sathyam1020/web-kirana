@@ -7,12 +7,17 @@ import * as controller from "./categories.controller.js"
 import {
   categoryIdParamSchema,
   createCategoryBodySchema,
+  listCategoriesQuerySchema,
   updateCategoryBodySchema,
 } from "./categories.schemas.js"
 
 /** Public list, used by both customer and owner clients. */
 export const categoriesPublicRouter: Router = Router()
-categoriesPublicRouter.get("/", controller.list)
+categoriesPublicRouter.get(
+  "/",
+  validate({ query: listCategoriesQuerySchema }),
+  controller.list,
+)
 // Defensive guard against accidental writers being attached to the public
 // mount in a future PR. Anything that isn't GET / falls through to a 404
 // so it stays read-only by construction.

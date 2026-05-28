@@ -6,6 +6,7 @@ import {
   createProductBodySchema,
   featureProductBodySchema,
   listProductsQuerySchema,
+  moveProductBodySchema,
   productIdParamSchema,
   updateProductBodySchema,
 } from "./products.schemas.js"
@@ -65,4 +66,11 @@ productsRouter.delete(
   "/:id/feature",
   validate({ params: productIdParamSchema }),
   controller.unfeature,
+)
+
+// Phase 6.6 — move a product to a different subcategory (within this store).
+productsRouter.post(
+  "/:id/move",
+  validate({ params: productIdParamSchema, body: moveProductBodySchema }),
+  controller.move,
 )

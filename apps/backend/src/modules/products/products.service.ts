@@ -7,14 +7,25 @@ import { searchProducts } from "../search/search.service.js"
 import type {
   CreateProductBody,
   ListProductsQuery,
+  MoveProductBody,
   UpdateProductBody,
 } from "./products.schemas.js"
 
+/**
+ * Phase 6.6 — Product carries Subcategory (L3) + the admin Category (L2)
+ * and Department (L1) names by JOIN. The owner view denormalizes all three
+ * for the catalogue UI; the public search view (see search.service) does
+ * the same denormalization via tsvector.
+ */
 export interface ProductView {
   id: string
   storeId: string
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -34,7 +45,7 @@ export interface ProductView {
 const SELECT = {
   id: true,
   storeId: true,
-  categoryId: true,
+  subcategoryId: true,
   name: true,
   description: true,
   pricePaise: true,
@@ -49,13 +60,24 @@ const SELECT = {
   searchAliases: true,
   createdAt: true,
   updatedAt: true,
-  category: { select: { name: true } },
+  subcategory: {
+    select: {
+      name: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+          department: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
 } as const
 
 function toView(row: {
   id: string
   storeId: string
-  categoryId: string
+  subcategoryId: string
   name: string
   description: string | null
   pricePaise: number
@@ -70,18 +92,38 @@ function toView(row: {
   searchAliases: string[]
   createdAt: Date
   updatedAt: Date
-  category: { name: string }
+  subcategory: {
+    name: string
+    category: { id: string; name: string; department: { id: string; name: string } }
+  }
 }): ProductView {
-  const { category, ...rest } = row
-  return { ...rest, categoryName: category.name }
+  const { subcategory, ...rest } = row
+  return {
+    ...rest,
+    subcategoryName: subcategory.name,
+    categoryId: subcategory.category.id,
+    categoryName: subcategory.category.name,
+    departmentId: subcategory.category.department.id,
+    departmentName: subcategory.category.department.name,
+  }
 }
 
-async function assertCategoryExists(categoryId: string): Promise<void> {
-  const cat = await prisma.category.findUnique({
-    where: { id: categoryId },
+/**
+ * Verify the subcategory exists AND belongs to the calling owner's store.
+ * Combined check prevents an owner from attaching a product to a sub they
+ * don't own. Returns the sub for caller use (e.g. event payload).
+ */
+async function assertOwnSubcategory(
+  storeId: string,
+  subcategoryId: string,
+): Promise<void> {
+  const sub = await prisma.subcategory.findFirst({
+    where: { id: subcategoryId, storeId },
     select: { id: true },
   })
-  if (cat === null) throw new ValidationError("Category does not exist")
+  if (sub === null) {
+    throw new ValidationError("Subcategory does not exist or doesn't belong to your store")
+  }
 }
 
 export async function createProduct(
@@ -89,14 +131,13 @@ export async function createProduct(
   ownerId: string,
   input: CreateProductBody,
 ): Promise<ProductView> {
-  // Validate FK up-front for a clean 400 rather than P2003 → mapped error.
-  await assertCategoryExists(input.categoryId)
+  await assertOwnSubcategory(storeId, input.subcategoryId)
 
   try {
     const created = await prisma.product.create({
       data: {
         storeId,
-        categoryId: input.categoryId,
+        subcategoryId: input.subcategoryId,
         name: input.name,
         description: input.description,
         pricePaise: input.pricePaise,
@@ -131,18 +172,16 @@ export async function listProducts(
   storeId: string,
   query: ListProductsQuery,
 ): Promise<ListProductsResult> {
-  if (query.category !== undefined) await assertCategoryExists(query.category)
-
   // When the owner sends `q`, delegate to the search service so ranking is
-  // consistent with the public endpoint. Filters (category / availability /
-  // includeInactive) still apply because the search service honors them.
+  // consistent with the public endpoint.
   if (query.q !== undefined && query.q.length > 0) {
     const result = await searchProducts({
       q: query.q,
       page: 1, // owner self-search isn't paginated through this path yet —
                // cursor pagination doesn't compose with scored search.
       limit: query.limit,
-      categoryId: query.category,
+      categoryId: query.categoryId,
+      subcategoryId: query.subcategoryId,
       ownerScope: { storeId },
     })
 
@@ -159,8 +198,12 @@ export async function listProducts(
       items: visible.map((h) => ({
         id: h.id,
         storeId: h.storeId,
+        subcategoryId: h.subcategoryId,
+        subcategoryName: h.subcategoryName,
         categoryId: h.categoryId,
         categoryName: h.categoryName,
+        departmentId: h.departmentId,
+        departmentName: h.departmentName,
         name: h.name,
         description: h.description,
         pricePaise: h.pricePaise,
@@ -186,7 +229,12 @@ export async function listProducts(
 
   const where: Record<string, unknown> = { storeId }
   if (!query.includeInactive) where.isActive = true
-  if (query.category !== undefined) where.categoryId = query.category
+  if (query.subcategoryId !== undefined) where.subcategoryId = query.subcategoryId
+  if (query.categoryId !== undefined) {
+    // Filter through Subcategory → Category via a nested relation filter
+    // (Prisma supports this directly). Equivalent to a JOIN.
+    where.subcategory = { categoryId: query.categoryId }
+  }
   if (query.available !== undefined) where.isAvailable = query.available
 
   const items = await prisma.product.findMany({
@@ -229,12 +277,7 @@ export async function updateProduct(
   productId: string,
   input: UpdateProductBody,
 ): Promise<ProductView> {
-  if (input.categoryId !== undefined) {
-    await assertCategoryExists(input.categoryId)
-  }
-
   const data: Record<string, unknown> = {}
-  if (input.categoryId !== undefined) data.categoryId = input.categoryId
   if (input.name !== undefined) data.name = input.name
   if (input.description !== undefined) data.description = input.description
   if (input.pricePaise !== undefined) data.pricePaise = input.pricePaise
@@ -267,6 +310,54 @@ export async function updateProduct(
     fields: Object.keys(data),
   })
   return toView(updated)
+}
+
+/**
+ * Phase 6.6 — move a product between subcategories within the same store.
+ * Both target sub and source product are scoped to the calling owner;
+ * cross-store moves are impossible by design.
+ */
+export async function moveProduct(
+  storeId: string,
+  ownerId: string,
+  productId: string,
+  input: MoveProductBody,
+): Promise<ProductView> {
+  // Verify the destination sub is owned by this store (also implicitly
+  // verifies it exists).
+  await assertOwnSubcategory(storeId, input.subcategoryId)
+
+  // Look up current sub for the event payload, and to no-op if unchanged.
+  const current = await prisma.product.findFirst({
+    where: { id: productId, storeId },
+    select: { subcategoryId: true },
+  })
+  if (current === null) throw new NotFoundError("Product not found")
+
+  if (current.subcategoryId === input.subcategoryId) {
+    // Idempotent — no-op return.
+    return getProduct(storeId, productId)
+  }
+
+  const claim = await prisma.product.updateMany({
+    where: { id: productId, storeId },
+    data: { subcategoryId: input.subcategoryId },
+  })
+  if (claim.count === 0) throw new NotFoundError("Product not found")
+
+  const after = await prisma.product.findUniqueOrThrow({
+    where: { id: productId },
+    select: SELECT,
+  })
+  events.emit({
+    type: "product.moved",
+    productId,
+    storeId,
+    ownerId,
+    fromSubcategoryId: current.subcategoryId,
+    toSubcategoryId: input.subcategoryId,
+  })
+  return toView(after)
 }
 
 export async function softDeleteProduct(

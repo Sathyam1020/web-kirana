@@ -105,14 +105,26 @@ export type StoreIdParam = z.infer<typeof storeIdParamSchema>
 
 /**
  * GET /v1/stores/:id/products — public product list scoped to a single store.
- * When `q` is present, the controller delegates to the search service so
- * ranking matches the public /v1/search/products endpoint. Otherwise it's a
- * straight prisma query with featured pins surfacing first.
+ * Phase 6.6: accepts both `categoryId` (L2, JOINs via subcategory) and
+ * `subcategoryId` (L3, direct FK) — combine to narrow further.
+ * `q` delegates to the search service so ranking matches /v1/search/products.
  */
 export const storeProductsQuerySchema = z.strictObject({
   q: z.string().trim().min(1).max(100).optional(),
-  category: z.string().min(1).max(40).optional(),
+  categoryId: z.string().min(1).max(40).optional(),
+  subcategoryId: z.string().min(1).max(40).optional(),
   page: z.coerce.number().int().min(1).max(50).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(30),
 })
 export type StoreProductsQuery = z.infer<typeof storeProductsQuerySchema>
+
+/**
+ * GET /v1/stores/:id/categories — paginated continuation of the initial
+ * categorySections returned by /v1/stores/:id. The FE calls this when the
+ * customer scrolls past the first 8 sections on the store-home page.
+ */
+export const storeCategoriesQuerySchema = z.strictObject({
+  page: z.coerce.number().int().min(1).max(50).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(20).optional().default(6),
+})
+export type StoreCategoriesQuery = z.infer<typeof storeCategoriesQuerySchema>

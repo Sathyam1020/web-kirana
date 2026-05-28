@@ -13,6 +13,7 @@ import { buildApp } from "../src/app.js"
 import { prisma } from "../src/db/prisma.js"
 import {
   cleanupRun,
+  ensureSubcategoryForOwner,
   signupApprovedOwner,
 } from "./helpers/factories.js"
 
@@ -188,11 +189,13 @@ describe("Customer search — visibility rules", () => {
 
 describe("Customer search — filters", () => {
   it("scope to one categoryId", async () => {
-    const dairy = await prisma.category.findUnique({
+    // Phase 6.6: Category is now unique on (departmentId, name) — find via
+    // name across all depts (only one matches in seed).
+    const dairy = await prisma.category.findFirstOrThrow({
       where: { name: "Dairy & Eggs" },
       select: { id: true },
     })
-    const res = await search("a", `&categoryId=${dairy!.id}`)
+    const res = await search("a", `&categoryId=${dairy.id}`)
     expect(res.status).toBe(200)
     const items = res.body.data.items as { categoryName: string }[]
     expect(items.length).toBeGreaterThan(0)
@@ -284,11 +287,12 @@ describe("Owner self-search via /stores/me/products?q=", () => {
         pincode: "560102",
       })
     const cats = await prisma.category.findMany({ take: 1 })
+    const subcategoryId = await ensureSubcategoryForOwner(owner, cats[0]!.id)
     const created = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
       .send({
-        categoryId: cats[0]!.id,
+        subcategoryId,
         name: "Maggi 2-Minute Noodles",
         pricePaise: 1400,
         unit: "G",
@@ -323,11 +327,12 @@ describe("Owner self-search via /stores/me/products?q=", () => {
         pincode: "560102",
       })
     const cats = await prisma.category.findMany({ take: 1 })
+    const subcategoryId = await ensureSubcategoryForOwner(owner, cats[0]!.id)
     await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
       .send({
-        categoryId: cats[0]!.id,
+        subcategoryId,
         name: "Bread Whole Wheat",
         pricePaise: 3500,
         unit: "PIECE",
@@ -358,11 +363,12 @@ describe("Validation around searchAliases on Product create/update", () => {
         pincode: "560102",
       })
     const cats = await prisma.category.findMany({ take: 1 })
+    const subcategoryId = await ensureSubcategoryForOwner(owner, cats[0]!.id)
     const res = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
       .send({
-        categoryId: cats[0]!.id,
+        subcategoryId,
         name: "Test",
         pricePaise: 1000,
         unit: "PIECE",
@@ -386,11 +392,12 @@ describe("Validation around searchAliases on Product create/update", () => {
         pincode: "560102",
       })
     const cats = await prisma.category.findMany({ take: 1 })
+    const subcategoryId = await ensureSubcategoryForOwner(owner, cats[0]!.id)
     const res = await api()
       .post("/v1/stores/me/products")
       .set("Cookie", owner.cookieHeader)
       .send({
-        categoryId: cats[0]!.id,
+        subcategoryId,
         name: "DedupeProduct",
         pricePaise: 1000,
         unit: "PIECE",

@@ -82,12 +82,27 @@ export const auth = betterAuth({
   },
 
   session: {
-    // 30-day session; sliding refresh re-stamps expiresAt every 24h of use.
+    // Follows better-auth's documented "30-day persistent login" recipe.
+    // Three intertwined settings + a non-default freshAge — getting any
+    // one wrong causes a "flash of logged out":
+    //
+    //   expiresIn  (30d): hard ceiling for the session.
+    //   updateAge  (1d):  sliding refresh — re-stamps expiresAt every 24h
+    //                     of use so an active user never gets logged out.
+    //   cookieCache.maxAge (30d): MUST match expiresIn. The shadow cookie
+    //                     getting Max-Age'd shorter than the session is
+    //                     what caused the every-5-min-loading bug (we
+    //                     originally set 300s here per a stale doc).
+    //   freshAge (0):     disable the "you must reauth for sensitive
+    //                     actions after X" gate. We don't have any
+    //                     reauth-required flows, and the default 1d was
+    //                     close enough to trigger spurious checks.
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,
+    freshAge: 0,
     cookieCache: {
       enabled: true,
-      maxAge: 5 * 60, // 5-minute in-memory cache; tiny win on hot paths
+      maxAge: 60 * 60 * 24 * 30,
     },
   },
 

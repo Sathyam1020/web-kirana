@@ -232,11 +232,20 @@ export interface StoreNearbyHit extends StorePublicView {
   distanceMeters: number
 }
 
+/**
+ * Phase 6.6 — public product view carries the full taxonomy chain (L1+L2+L3)
+ * so customer-side tiles can show a "Atta, Rice & Dal → Rice" badge without
+ * a second round-trip per item.
+ */
 export interface ProductPublicView {
   id: string
   storeId: string
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -296,7 +305,7 @@ function toPublicView(row: {
 const PUBLIC_PRODUCT_SELECT = {
   id: true,
   storeId: true,
-  categoryId: true,
+  subcategoryId: true,
   name: true,
   description: true,
   pricePaise: true,
@@ -305,13 +314,24 @@ const PUBLIC_PRODUCT_SELECT = {
   isAvailable: true,
   isFeatured: true,
   featuredOrder: true,
-  category: { select: { name: true } },
+  subcategory: {
+    select: {
+      name: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+          department: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
 } as const
 
 function toPublicProductView(row: {
   id: string
   storeId: string
-  categoryId: string
+  subcategoryId: string
   name: string
   description: string | null
   pricePaise: number
@@ -320,10 +340,20 @@ function toPublicProductView(row: {
   isAvailable: boolean
   isFeatured: boolean
   featuredOrder: number | null
-  category: { name: string }
+  subcategory: {
+    name: string
+    category: { id: string; name: string; department: { id: string; name: string } }
+  }
 }): ProductPublicView {
-  const { category, ...rest } = row
-  return { ...rest, categoryName: category.name }
+  const { subcategory, ...rest } = row
+  return {
+    ...rest,
+    subcategoryName: subcategory.name,
+    categoryId: subcategory.category.id,
+    categoryName: subcategory.category.name,
+    departmentId: subcategory.category.department.id,
+    departmentName: subcategory.category.department.name,
+  }
 }
 
 // --- /v1/stores/nearby --------------------------------------------------
@@ -431,91 +461,308 @@ export async function listNearbyStores(opts: {
 // --- /v1/stores/:id -----------------------------------------------------
 
 const MAX_FEATURED_PRODUCTS = 20
+/**
+ * How many CategorySection objects we return on the initial store-detail
+ * call. The FE lazy-paginates the rest via GET /v1/stores/:id/categories.
+ */
+const INITIAL_CATEGORY_SECTIONS = 8
+const PRODUCTS_PER_SECTION = 12
+
+/**
+ * Phase 6.6 — new store-detail response. Locked in CLEANUP.md per your spec:
+ *
+ *   • departments      — admin grid (L1 → L2 nested) for the icon strip
+ *                        under the banner. Only depts that have at least
+ *                        one category that has at least one (active +
+ *                        available) product in THIS store are returned.
+ *   • featuredProducts — owner-pinned, capped at 20.
+ *   • categorySections — first N (default 8) admin Categories the store
+ *                        carries, each with the top M (default 12)
+ *                        products + totalCount for the "See all 47" link.
+ *                        Sections beyond N come from
+ *                        GET /v1/stores/:id/categories.
+ */
+export interface StoreDetailDepartmentView {
+  id: string
+  name: string
+  displayOrder: number
+  iconUrl: string | null
+  categories: Array<{
+    id: string
+    name: string
+    displayOrder: number
+    iconUrl: string | null
+  }>
+}
+
+export interface CategorySection {
+  category: { id: string; name: string; displayOrder: number; iconUrl: string | null }
+  products: ProductPublicView[]
+  totalCount: number
+  hasMore: boolean
+}
 
 export interface StoreDetailResult {
   store: StorePublicView
+  departments: StoreDetailDepartmentView[]
   featuredProducts: ProductPublicView[]
-  categories: CategoryCount[]
+  categorySections: CategorySection[]
+  /** Cursor for the lazy-paginated categories endpoint: total count of
+   *  categories this store carries; the FE has loaded first
+   *  INITIAL_CATEGORY_SECTIONS already. */
+  totalCategoryCount: number
+}
+
+/**
+ * Internal helper — for one storeId, returns the set of distinct
+ * (categoryId, productCount) the store currently carries (active +
+ * available products only, with the subcategory's kill-switch respected).
+ * Ordered by Category.displayOrder asc, name asc. Used to feed the
+ * category-grid + sections + paginated /:id/categories.
+ */
+interface StoreCategoryStat {
+  category: { id: string; name: string; displayOrder: number; iconUrl: string | null; departmentId: string }
+  totalCount: number
+}
+
+async function computeStoreCategoryStats(storeId: string): Promise<StoreCategoryStat[]> {
+  // groupBy by Product.subcategoryId → group again client-side by
+  // Subcategory.categoryId. This is two queries but the JOIN happens
+  // in Prisma's relational include so we don't fan out N+1.
+  const groups = await prisma.product.groupBy({
+    by: ["subcategoryId"],
+    where: {
+      storeId,
+      isActive: true,
+      isAvailable: true,
+      subcategory: { isAvailable: true },
+    },
+    _count: { _all: true },
+  })
+
+  if (groups.length === 0) return []
+
+  const subRows = await prisma.subcategory.findMany({
+    where: { id: { in: groups.map((g) => g.subcategoryId) } },
+    select: {
+      id: true,
+      categoryId: true,
+      category: {
+        select: {
+          id: true,
+          name: true,
+          displayOrder: true,
+          iconUrl: true,
+          departmentId: true,
+        },
+      },
+    },
+  })
+
+  // Roll up counts per category.
+  const countBySubId = new Map(groups.map((g) => [g.subcategoryId, g._count._all]))
+  const perCategory = new Map<string, StoreCategoryStat>()
+  for (const sub of subRows) {
+    const count = countBySubId.get(sub.id) ?? 0
+    const existing = perCategory.get(sub.categoryId)
+    if (existing) {
+      existing.totalCount += count
+    } else {
+      perCategory.set(sub.categoryId, {
+        category: sub.category,
+        totalCount: count,
+      })
+    }
+  }
+  return Array.from(perCategory.values()).sort((a, b) => {
+    if (a.category.displayOrder !== b.category.displayOrder)
+      return a.category.displayOrder - b.category.displayOrder
+    return a.category.name.localeCompare(b.category.name)
+  })
+}
+
+/**
+ * Internal helper — for a single (storeId, categoryId), pulls top N
+ * products (featured pinned first) + the totalCount. Used by both
+ * getStorePublic and listStoreCategoryPage.
+ */
+async function loadProductsForStoreCategory(
+  storeId: string,
+  categoryId: string,
+  limit: number,
+): Promise<{ products: ProductPublicView[]; totalCount: number }> {
+  const where = {
+    storeId,
+    isActive: true,
+    isAvailable: true,
+    subcategory: { categoryId, isAvailable: true },
+  }
+  const [rows, totalCount] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      select: PUBLIC_PRODUCT_SELECT,
+      orderBy: [
+        { isFeatured: "desc" },
+        { featuredOrder: { sort: "asc", nulls: "last" } },
+        { name: "asc" },
+        { id: "asc" },
+      ],
+      take: limit,
+    }),
+    prisma.product.count({ where }),
+  ])
+  return { products: rows.map(toPublicProductView), totalCount }
 }
 
 export async function getStorePublic(storeId: string): Promise<StoreDetailResult> {
-  // Three reads with no inter-dependency: parallelize. Saves 2 × Neon RTT
-  // (~10-20ms) on every store-detail render — directly visible on the
-  // customer PWA's hero load.
-  const [store, featuredRows, groups] = await Promise.all([
+  // Parallelize the three eager reads. The category-section materialisation
+  // happens after we know which top-N categories to surface (sequential).
+  const [store, featuredRows, categoryStats] = await Promise.all([
     prisma.store.findFirst({
       where: { id: storeId, isActive: true },
       select: PUBLIC_STORE_SELECT,
     }),
-    // Featured products surface the curated row first on store detail.
-    // Hidden products (isActive=false) and out-of-stock items
-    // (isAvailable=false) are excluded so the carousel never shows ghosts.
-    // Note: even if the store turns out to be inactive (404 below), this
-    // extra query is wasted work — but it's small (LIMIT 20), and the
-    // happy path always renders these, so eager-fetching is the right
-    // default.
     prisma.product.findMany({
       where: {
         storeId,
         isActive: true,
         isAvailable: true,
         isFeatured: true,
+        subcategory: { isAvailable: true },
       },
       select: PUBLIC_PRODUCT_SELECT,
-      // featuredOrder ASC NULLS LAST keeps pinned items predictable;
-      // createdAt DESC breaks ties so the most recently featured wins.
       orderBy: [
         { featuredOrder: { sort: "asc", nulls: "last" } },
         { createdAt: "desc" },
       ],
       take: MAX_FEATURED_PRODUCTS,
     }),
-    // Per-category counts so the customer PWA can render category chips
-    // with badge counts. Empty categories are filtered out by groupBy
-    // semantics (only produces rows for present categoryIds).
-    prisma.product.groupBy({
-      by: ["categoryId"],
-      where: {
-        storeId,
-        isActive: true,
-        isAvailable: true,
-      },
-      _count: { _all: true },
-    }),
+    computeStoreCategoryStats(storeId),
   ])
   if (store === null) throw new NotFoundError("Store not found")
 
-  const categoryIds = groups.map((g) => g.categoryId)
-  const categoryRows =
-    categoryIds.length === 0
-      ? []
-      : await prisma.category.findMany({
-          where: { id: { in: categoryIds } },
-          select: { id: true, name: true, displayOrder: true },
-        })
-  const countMap = new Map(groups.map((g) => [g.categoryId, g._count._all]))
-
-  const sortedRows = categoryRows
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      productCount: countMap.get(c.id) ?? 0,
-      displayOrder: c.displayOrder,
-    }))
-    .sort((a, b) => {
-      if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder
-      return a.name.localeCompare(b.name)
+  // Department grid — only show departments that contain at least one
+  // category present in this store.
+  const departmentMap = new Map<string, StoreDetailDepartmentView>()
+  for (const stat of categoryStats) {
+    let dept = departmentMap.get(stat.category.departmentId)
+    if (!dept) {
+      dept = {
+        id: stat.category.departmentId,
+        name: "", // filled below in one query
+        displayOrder: 0,
+        iconUrl: null,
+        categories: [],
+      }
+      departmentMap.set(stat.category.departmentId, dept)
+    }
+    dept.categories.push({
+      id: stat.category.id,
+      name: stat.category.name,
+      displayOrder: stat.category.displayOrder,
+      iconUrl: stat.category.iconUrl,
     })
-  const categories: CategoryCount[] = sortedRows.map((c) => ({
-    id: c.id,
-    name: c.name,
-    productCount: c.productCount,
-  }))
+  }
+  if (departmentMap.size > 0) {
+    const deptRows = await prisma.department.findMany({
+      where: { id: { in: Array.from(departmentMap.keys()) } },
+      select: { id: true, name: true, displayOrder: true, iconUrl: true },
+    })
+    for (const d of deptRows) {
+      const entry = departmentMap.get(d.id)
+      if (entry) {
+        entry.name = d.name
+        entry.displayOrder = d.displayOrder
+        entry.iconUrl = d.iconUrl
+      }
+    }
+  }
+  const departments = Array.from(departmentMap.values()).sort((a, b) => {
+    if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder
+    return a.name.localeCompare(b.name)
+  })
+
+  // First N category sections, each with top M products.
+  const firstSlice = categoryStats.slice(0, INITIAL_CATEGORY_SECTIONS)
+  const categorySections: CategorySection[] = await Promise.all(
+    firstSlice.map(async (stat) => {
+      const { products, totalCount } = await loadProductsForStoreCategory(
+        storeId,
+        stat.category.id,
+        PRODUCTS_PER_SECTION,
+      )
+      return {
+        category: {
+          id: stat.category.id,
+          name: stat.category.name,
+          displayOrder: stat.category.displayOrder,
+          iconUrl: stat.category.iconUrl,
+        },
+        products,
+        totalCount,
+        hasMore: totalCount > products.length,
+      }
+    }),
+  )
 
   return {
     store: toPublicView(store),
+    departments,
     featuredProducts: featuredRows.map(toPublicProductView),
-    categories,
+    categorySections,
+    totalCategoryCount: categoryStats.length,
+  }
+}
+
+/**
+ * Phase 6.6 — paginated continuation of categorySections. Used by the
+ * customer PWA when scrolling past the initial 8 sections from
+ * GET /v1/stores/:id. Each page returns up to `limit` sections with
+ * `PRODUCTS_PER_SECTION` products each (12 by default).
+ */
+export interface StoreCategorySectionsResult {
+  items: CategorySection[]
+  page: number
+  limit: number
+  hasMore: boolean
+  totalCategoryCount: number
+}
+
+export async function listStoreCategorySections(
+  storeId: string,
+  opts: { page: number; limit: number },
+): Promise<StoreCategorySectionsResult> {
+  await assertActivePublicStore(storeId)
+
+  const stats = await computeStoreCategoryStats(storeId)
+  const offset = (opts.page - 1) * opts.limit
+  const slice = stats.slice(offset, offset + opts.limit)
+  const items: CategorySection[] = await Promise.all(
+    slice.map(async (stat) => {
+      const { products, totalCount } = await loadProductsForStoreCategory(
+        storeId,
+        stat.category.id,
+        PRODUCTS_PER_SECTION,
+      )
+      return {
+        category: {
+          id: stat.category.id,
+          name: stat.category.name,
+          displayOrder: stat.category.displayOrder,
+          iconUrl: stat.category.iconUrl,
+        },
+        products,
+        totalCount,
+        hasMore: totalCount > products.length,
+      }
+    }),
+  )
+  return {
+    items,
+    page: opts.page,
+    limit: opts.limit,
+    hasMore: offset + slice.length < stats.length,
+    totalCategoryCount: stats.length,
   }
 }
 
@@ -540,7 +787,8 @@ export async function listStoreProducts(
   storeId: string,
   opts: {
     q?: string
-    category?: string
+    categoryId?: string
+    subcategoryId?: string
     page: number
     limit: number
   },
@@ -549,12 +797,14 @@ export async function listStoreProducts(
 
   // When `q` is present, delegate to the central search service so ranking
   // matches /v1/search/products exactly. The search service enforces the
-  // public-customer filter (store open+active, product active+available).
+  // public-customer filter (store open+active, product active+available,
+  // subcategory available).
   if (opts.q !== undefined && opts.q.length > 0) {
     const result = await searchProducts({
       q: opts.q,
       storeId,
-      categoryId: opts.category,
+      categoryId: opts.categoryId,
+      subcategoryId: opts.subcategoryId,
       page: opts.page,
       limit: opts.limit,
     })
@@ -562,17 +812,18 @@ export async function listStoreProducts(
       items: result.items.map((h) => ({
         id: h.id,
         storeId: h.storeId,
+        subcategoryId: h.subcategoryId,
+        subcategoryName: h.subcategoryName,
         categoryId: h.categoryId,
         categoryName: h.categoryName,
+        departmentId: h.departmentId,
+        departmentName: h.departmentName,
         name: h.name,
         description: h.description,
         pricePaise: h.pricePaise,
         unit: h.unit,
         imageUrl: h.imageUrl,
         isAvailable: h.isAvailable,
-        // SearchHit doesn't carry featured state. Tile UI that needs the
-        // star/pin can call /v1/stores/:id (featuredProducts list) which is
-        // always cheap.
         isFeatured: false,
         featuredOrder: null,
       })),
@@ -586,8 +837,16 @@ export async function listStoreProducts(
     storeId,
     isActive: true,
     isAvailable: true,
+    // Customer-facing — respect the subcategory kill-switch too.
+    subcategory: { isAvailable: true },
   }
-  if (opts.category !== undefined) where.categoryId = opts.category
+  if (opts.subcategoryId !== undefined) {
+    where.subcategoryId = opts.subcategoryId
+  }
+  if (opts.categoryId !== undefined) {
+    // Compose with the kill-switch filter we set above.
+    where.subcategory = { ...(where.subcategory as object), categoryId: opts.categoryId }
+  }
 
   const offset = (opts.page - 1) * opts.limit
   const rows = await prisma.product.findMany({

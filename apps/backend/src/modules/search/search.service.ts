@@ -23,8 +23,14 @@ export interface SearchHit {
   id: string
   storeId: string
   storeName: string
+  // Phase 6.6: full taxonomy chain on every hit so the FE can render
+  // breadcrumbs / facets without an extra round-trip.
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -48,7 +54,10 @@ export interface SearchOpts {
   page?: number
   limit?: number
   storeId?: string
+  /** Phase 6.6: L2 — filter via subcategory.categoryId JOIN. */
   categoryId?: string
+  /** Phase 6.6: L3 — direct filter on the new FK. */
+  subcategoryId?: string
   /** Geo filter (all three required together) */
   lat?: number
   lng?: number
@@ -66,8 +75,12 @@ interface RawHit {
   id: string
   storeId: string
   storeName: string
+  subcategoryId: string
+  subcategoryName: string
   categoryId: string
   categoryName: string
+  departmentId: string
+  departmentName: string
   name: string
   description: string | null
   pricePaise: number
@@ -117,8 +130,17 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
   if (opts.storeId !== undefined) {
     conditions.push(sql`p."storeId" = ${opts.storeId}`)
   }
+  if (opts.subcategoryId !== undefined) {
+    conditions.push(sql`p."subcategoryId" = ${opts.subcategoryId}`)
+  }
   if (opts.categoryId !== undefined) {
-    conditions.push(sql`p."categoryId" = ${opts.categoryId}`)
+    // L2 filter — JOIN through Subcategory.categoryId.
+    conditions.push(sql`sc."categoryId" = ${opts.categoryId}`)
+  }
+  if (!opts.ownerScope) {
+    // Customer-facing path also drops products whose subcategory has
+    // been kill-switched by the owner (Phase 6.6 bulk-availability).
+    conditions.push(sql`sc."isAvailable" = true`)
   }
   if (hasGeo) {
     conditions.push(sql`s.location IS NOT NULL`)
@@ -161,15 +183,19 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
   `
 
   // Fetch limit + 1 so we know if there's a next page without a separate COUNT.
-  // Build the full Sql object (composing nested fragments) and pass to
-  // $queryRaw — the template-literal form doesn't expand nested Sql.
+  // JOINs traverse Product → Subcategory → Category → Department for the
+  // full taxonomy chain (Phase 6.6).
   const query = sql`
     SELECT
       p.id,
       p."storeId",
       s.name AS "storeName",
-      p."categoryId",
+      p."subcategoryId",
+      sc.name AS "subcategoryName",
+      sc."categoryId",
       c.name AS "categoryName",
+      c."departmentId",
+      d.name AS "departmentName",
       p.name,
       p.description,
       p."pricePaise",
@@ -179,8 +205,10 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
       p."isActive",
       ${scoreExpr} AS score
     FROM "Product" p
-    JOIN "Store"    s ON s.id = p."storeId"
-    JOIN "Category" c ON c.id = p."categoryId"
+    JOIN "Store"       s  ON s.id  = p."storeId"
+    JOIN "Subcategory" sc ON sc.id = p."subcategoryId"
+    JOIN "Category"    c  ON c.id  = sc."categoryId"
+    JOIN "Department"  d  ON d.id  = c."departmentId"
     WHERE ${where}
     ORDER BY score DESC, p.id ASC
     LIMIT ${limit + 1} OFFSET ${offset}
@@ -195,8 +223,12 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
       id: row.id,
       storeId: row.storeId,
       storeName: row.storeName,
+      subcategoryId: row.subcategoryId,
+      subcategoryName: row.subcategoryName,
       categoryId: row.categoryId,
       categoryName: row.categoryName,
+      departmentId: row.departmentId,
+      departmentName: row.departmentName,
       name: row.name,
       description: row.description,
       pricePaise: row.pricePaise,

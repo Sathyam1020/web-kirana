@@ -11,7 +11,10 @@ export const searchProductsQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
   // Optional scope filters
   storeId: z.string().min(1).max(40).optional(),
+  // Phase 6.6 — L2 (admin category) and L3 (store subcategory) both
+  // available. They compose (subcategoryId narrows further inside categoryId).
   categoryId: z.string().min(1).max(40).optional(),
+  subcategoryId: z.string().min(1).max(40).optional(),
   // Optional location filter for Phase 5 to plug in via querystring rather
   // than a separate endpoint. All three must be present together.
   lat: z.coerce.number().min(-90).max(90).optional(),

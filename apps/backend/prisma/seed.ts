@@ -105,24 +105,42 @@ async function upsertSeedUser(spec: SeedUserSpec): Promise<{ id: string }> {
 }
 
 async function main(): Promise<void> {
-  // Categories — global taxonomy, displayed in store-detail grouped views.
+  // Phase 6.6 — Departments (L1, admin-owned, global). Ids match the
+  // hardcoded ones the taxonomy migration seeds, so a fresh `db:reset`
+  // followed by `db:seed` lands on the same id space.
+  const departmentsSpec = [
+    { id: "dept_grocery_kitchen", name: "Grocery & Kitchen",      displayOrder: 10 },
+    { id: "dept_snacks_drinks",   name: "Snacks & Drinks",        displayOrder: 20 },
+    { id: "dept_beauty_personal", name: "Beauty & Personal Care", displayOrder: 30 },
+    { id: "dept_household",       name: "Household Essentials",   displayOrder: 40 },
+  ]
+  for (const d of departmentsSpec) {
+    await prisma.department.upsert({
+      where: { id: d.id },
+      update: { name: d.name, displayOrder: d.displayOrder },
+      create: d,
+    })
+  }
+
+  // Categories (L2, admin-owned). (departmentId, name) is the composite
+  // unique — the same name can exist under two departments.
   const categoriesSpec = [
-    { name: "Atta, Rice & Dal", displayOrder: 10 },
-    { name: "Dairy & Eggs", displayOrder: 20 },
-    { name: "Snacks & Beverages", displayOrder: 30 },
-    { name: "Personal Care", displayOrder: 40 },
+    { departmentId: "dept_grocery_kitchen", name: "Atta, Rice & Dal",   displayOrder: 10 },
+    { departmentId: "dept_grocery_kitchen", name: "Dairy & Eggs",       displayOrder: 20 },
+    { departmentId: "dept_snacks_drinks",   name: "Snacks & Beverages", displayOrder: 30 },
+    { departmentId: "dept_beauty_personal", name: "Personal Care",      displayOrder: 40 },
   ]
   const categories = await Promise.all(
     categoriesSpec.map((c) =>
       prisma.category.upsert({
-        where: { name: c.name },
+        where: { departmentId_name: { departmentId: c.departmentId, name: c.name } },
         update: { displayOrder: c.displayOrder },
         create: c,
       }),
     ),
   )
   const catByName = new Map(categories.map((c) => [c.name, c]))
-  const cat = (name: string): string => {
+  const catId = (name: string): string => {
     const found = catByName.get(name)
     if (!found) throw new Error(`Seed bug: category not found: ${name}`)
     return found.id
@@ -207,6 +225,32 @@ async function main(): Promise<void> {
     },
   })
 
+  // Subcategories (L3, store-owned). Seed creates exactly one Subcategory
+  // per (store, category) we'll seed products under — named after the
+  // category, since the owner hasn't curated their own L3 layout yet.
+  // The taxonomy migration already created these for any pre-existing
+  // products; the upsert here is the source-of-truth on a fresh reset.
+  async function subId(
+    storeId: string,
+    categoryName: string,
+  ): Promise<string> {
+    const categoryId = catId(categoryName)
+    const sub = await prisma.subcategory.upsert({
+      where: {
+        storeId_categoryId_name: { storeId, categoryId, name: categoryName },
+      },
+      update: {},
+      create: {
+        storeId,
+        categoryId,
+        name: categoryName,
+        displayOrder: 0,
+        isAvailable: true,
+      },
+    })
+    return sub.id
+  }
+
   // Products per store. (storeId, name) is not unique in the schema — we
   // identify by find-then-create for idempotent re-seeds.
   const productSpec: Array<{
@@ -255,10 +299,11 @@ async function main(): Promise<void> {
       }
       continue
     }
+    const subcategoryId = await subId(p.store.id, p.category)
     await prisma.product.create({
       data: {
         storeId: p.store.id,
-        categoryId: cat(p.category),
+        subcategoryId,
         name: p.name,
         pricePaise: p.pricePaise,
         unit: p.unit,

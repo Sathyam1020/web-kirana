@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
 import { categoriesAdminRouter } from "../categories/categories.routes.js"
 import { couponsAdminRouter } from "../coupons/coupons.routes.js"
+import { departmentsAdminRouter } from "../departments/departments.routes.js"
 import * as controller from "./admin.controller.js"
 import {
   productIdParamSchema,
@@ -30,6 +31,9 @@ adminRouter.post(
   validate({ params: userIdParamSchema }),
   controller.rejectOwner,
 )
+
+// Department admin CRUD (Phase 6.6 — L1 taxonomy)
+adminRouter.use("/departments", departmentsAdminRouter)
 
 // Category admin endpoints (categoriesAdminRouter already imposes
 // requireAuth + requireRole(ADMIN), so the double-gate is harmless and the
