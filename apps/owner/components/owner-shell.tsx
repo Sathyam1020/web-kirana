@@ -7,6 +7,7 @@ import { ThemeToggle } from "@workspace/ui/components/theme-toggle"
 import type { StoreOwnerView } from "@workspace/api-client"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  ClipboardList,
   FolderTree,
   Home,
   LogOut,
@@ -24,6 +25,7 @@ import { BrandMark } from "./brand-mark"
 
 const NAV = [
   { href: "/dashboard", label: "Today", icon: Home },
+  { href: "/orders", label: "Orders", icon: ClipboardList },
   { href: "/products", label: "Products", icon: Package },
   // Phase 6.6 — owner-owned L3 taxonomy (under admin's L1 + L2).
   { href: "/subcategories", label: "Aisles", icon: FolderTree },
