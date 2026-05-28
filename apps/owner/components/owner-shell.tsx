@@ -7,6 +7,7 @@ import { ThemeToggle } from "@workspace/ui/components/theme-toggle"
 import type { StoreOwnerView } from "@workspace/api-client"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  FolderTree,
   Home,
   LogOut,
   Package,
@@ -21,8 +22,10 @@ import { toast } from "sonner"
 import { BrandMark } from "./brand-mark"
 
 const NAV = [
-  { href: "/", label: "Today", icon: Home },
+  { href: "/dashboard", label: "Today", icon: Home },
   { href: "/products", label: "Products", icon: Package },
+  // Phase 6.6 — owner-owned L3 taxonomy (under admin's L1 + L2).
+  { href: "/subcategories", label: "Aisles", icon: FolderTree },
   { href: "/featured", label: "Featured", icon: Star },
   { href: "/coupons", label: "Coupons", icon: Ticket },
 ] as const
@@ -123,10 +126,12 @@ export function OwnerShell({ store, children }: Props) {
       <main className="px-4 sm:px-6 py-6">{children}</main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-background/90 backdrop-blur-md border-t border-border/40">
-        <div className="max-w-2xl mx-auto grid grid-cols-4">
+        <div
+          className="max-w-3xl mx-auto grid"
+          style={{ gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}
+        >
           {NAV.map((item) => {
-            const active =
-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+            const active = pathname.startsWith(item.href)
             const Icon = item.icon
             return (
               <Link

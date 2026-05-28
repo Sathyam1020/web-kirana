@@ -17,6 +17,13 @@ import { ErrorState } from "@workspace/ui/components/error-state"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { SafeImage } from "@workspace/ui/components/safe-image"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import {
   useMutation,
@@ -32,9 +39,11 @@ interface FormState {
   name: string
   displayOrder: string
   iconUrl: string
+  // Phase 6.6 — every category must live under an admin Department.
+  departmentId: string
 }
 
-const EMPTY: FormState = { name: "", displayOrder: "0", iconUrl: "" }
+const EMPTY: FormState = { name: "", displayOrder: "0", iconUrl: "", departmentId: "" }
 
 export default function CategoriesPage() {
   const api = useApi()
@@ -47,6 +56,17 @@ export default function CategoriesPage() {
     queryKey: ["categories"],
     queryFn: () => api.categories.list(),
   })
+
+  // Phase 6.6 — admin needs the Department list for both:
+  //   (1) the create-form picker (cascade categoryId under a department), and
+  //   (2) the list view, to display "under: <department name>" per row.
+  const departments = useQuery({
+    queryKey: ["departments"],
+    queryFn: () => api.departments.list(),
+  })
+
+  // Build a fast lookup so each category row can resolve its parent dept name.
+  const deptById = new Map(departments.data?.map((d) => [d.id, d]) ?? [])
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["categories"] })
@@ -63,7 +83,11 @@ export default function CategoriesPage() {
           iconUrl: trimmedIcon === "" ? null : trimmedIcon,
         })
       }
+      if (form.departmentId === "") {
+        throw new Error("Pick a department first")
+      }
       return api.admin.createCategory({
+        departmentId: form.departmentId,
         name: form.name.trim(),
         displayOrder,
         iconUrl: trimmedIcon === "" ? undefined : trimmedIcon,
@@ -94,6 +118,7 @@ export default function CategoriesPage() {
       name: c.name,
       displayOrder: String(c.displayOrder),
       iconUrl: c.iconUrl ?? "",
+      departmentId: c.departmentId,
     })
     setOpen(true)
   }
@@ -133,6 +158,32 @@ export default function CategoriesPage() {
               }}
               className="space-y-4"
             >
+              {/* Department picker — only required at create. Reparenting
+                  an existing Category is intentionally NOT supported. */}
+              {!editing && (
+                <div>
+                  <Label htmlFor="department" className="mb-2 block">
+                    Department
+                  </Label>
+                  <Select
+                    value={form.departmentId}
+                    onValueChange={(v) =>
+                      setForm((p) => ({ ...p, departmentId: v }))
+                    }
+                  >
+                    <SelectTrigger id="department">
+                      <SelectValue placeholder="Pick a department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.data?.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label htmlFor="name" className="mb-2 block">
                   Name
@@ -238,8 +289,9 @@ export default function CategoriesPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium">{c.name}</p>
-                <p className="text-xs text-muted-foreground tabular-nums">
-                  order {c.displayOrder}
+                <p className="text-xs text-muted-foreground">
+                  {deptById.get(c.departmentId)?.name ?? "—"}
+                  <span className="tabular-nums"> · order {c.displayOrder}</span>
                 </p>
               </div>
               <Button

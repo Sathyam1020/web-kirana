@@ -2,9 +2,9 @@
 
 import { useApi } from "@workspace/auth"
 import type {
-  Category,
   CreateProductBody,
   ProductOwnerView,
+  SubcategoryOwnerView,
   Unit,
   UpdateProductBody,
 } from "@workspace/api-client"
@@ -19,8 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2, X } from "lucide-react"
+import { Loader2, Plus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -28,9 +35,15 @@ import { describeApiError, rupeesToPaise, paiseToRupees } from "@/lib/format"
 
 const UNITS: Unit[] = ["KG", "G", "L", "ML", "PIECE", "PACK", "DOZEN"]
 
+/**
+ * Phase 6.6 — only the Subcategory (L3) is picked; its parent Category
+ * (L2) is implicit from Subcategory.categoryId. We show the parent name
+ * as context on each option (e.g. "Basmati Rice — Atta, Rice & Dal") so
+ * the owner still sees the marketplace shelf at a glance.
+ */
 interface FormState {
   name: string
-  categoryId: string
+  subcategoryId: string
   description: string
   priceRupees: string
   unit: Unit
@@ -43,7 +56,7 @@ interface FormState {
 function emptyForm(): FormState {
   return {
     name: "",
-    categoryId: "",
+    subcategoryId: "",
     description: "",
     priceRupees: "",
     unit: "PIECE",
@@ -57,7 +70,7 @@ function emptyForm(): FormState {
 function fromProduct(p: ProductOwnerView): FormState {
   return {
     name: p.name,
-    categoryId: p.categoryId,
+    subcategoryId: p.subcategoryId,
     description: p.description ?? "",
     priceRupees: paiseToRupees(p.pricePaise),
     unit: p.unit,
@@ -81,9 +94,62 @@ export function ProductForm({ product, onSaved }: Props) {
     product ? fromProduct(product) : emptyForm(),
   )
 
+  // Phase 6.6 — pick directly from this store's aisles. Each aisle
+  // already knows its parent admin Category (sub.categoryId), so no
+  // cascading picker is needed; we just label each option with the parent
+  // category for visual context.
+  const subcategories = useQuery({
+    queryKey: ["subcategories", "me"],
+    queryFn: () => api.subcategories.ownerList(),
+  })
+
   const categories = useQuery({
     queryKey: ["categories"],
     queryFn: () => api.categories.list(),
+  })
+
+  // Lookup so the option label can render "<aisle> — <category>".
+  const catNameById = new Map(
+    categories.data?.map((c) => [c.id, c.name]) ?? [],
+  )
+
+  // Sort aisles so options are grouped together by parent category, then
+  // by displayOrder, then alphabetically. (shadcn Select doesn't support
+  // visual groups out of the box; this ordering keeps related aisles
+  // adjacent in the list.)
+  const sortedSubs = (subcategories.data ?? [])
+    .slice()
+    .sort((a, b) => {
+      const ac = catNameById.get(a.categoryId) ?? ""
+      const bc = catNameById.get(b.categoryId) ?? ""
+      if (ac !== bc) return ac.localeCompare(bc)
+      if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder
+      return a.name.localeCompare(b.name)
+    })
+
+  // Phase 6.6 — inline "Create aisle" dialog right from the product form
+  // so the owner doesn't have to detour to /subcategories on their first
+  // product. After save, the new aisle is auto-selected on the form.
+  const [aisleDialogOpen, setAisleDialogOpen] = useState(false)
+  const [newAisleCategoryId, setNewAisleCategoryId] = useState("")
+  const [newAisleName, setNewAisleName] = useState("")
+
+  const createAisle = useMutation({
+    mutationFn: () =>
+      api.subcategories.ownerCreate({
+        categoryId: newAisleCategoryId,
+        name: newAisleName.trim(),
+      }),
+    onSuccess: (sub) => {
+      queryClient.invalidateQueries({ queryKey: ["subcategories", "me"] })
+      // Auto-select the newly-created aisle so the owner can keep going.
+      setForm((p) => ({ ...p, subcategoryId: sub.id }))
+      setAisleDialogOpen(false)
+      setNewAisleCategoryId("")
+      setNewAisleName("")
+      toast.success(`Aisle "${sub.name}" created`)
+    },
+    onError: (err) => toast.error(describeApiError(err)),
   })
 
   const save = useMutation({
@@ -92,9 +158,11 @@ export function ProductForm({ product, onSaved }: Props) {
       if (pricePaise < 100) {
         throw new Error("Price must be at least ₹1.00")
       }
+      if (!product && form.subcategoryId === "") {
+        throw new Error("Pick a subcategory first")
+      }
       const base = {
         name: form.name.trim(),
-        categoryId: form.categoryId,
         description: form.description.trim(),
         pricePaise,
         unit: form.unit,
@@ -102,9 +170,12 @@ export function ProductForm({ product, onSaved }: Props) {
         searchAliases: form.searchAliases,
       }
       if (product) {
+        // PATCH no longer accepts subcategoryId; use /move if it changed.
+        if (form.subcategoryId !== product.subcategoryId && form.subcategoryId !== "") {
+          await api.products.move(product.id, { subcategoryId: form.subcategoryId })
+        }
         const patch: UpdateProductBody = {
           name: base.name,
-          categoryId: base.categoryId,
           description: base.description === "" ? null : base.description,
           pricePaise: base.pricePaise,
           unit: base.unit,
@@ -116,6 +187,7 @@ export function ProductForm({ product, onSaved }: Props) {
       }
       const body: CreateProductBody = {
         ...base,
+        subcategoryId: form.subcategoryId,
         description: base.description === "" ? undefined : base.description,
         imageUrl: base.imageUrl === "" ? undefined : base.imageUrl,
         isAvailable: form.isAvailable,
@@ -162,8 +234,8 @@ export function ProductForm({ product, onSaved }: Props) {
         onSubmit={(e) => {
           e.preventDefault()
           if (save.isPending) return
-          if (!form.categoryId) {
-            toast.error("Pick a category")
+          if (!form.subcategoryId) {
+            toast.error("Pick an aisle")
             return
           }
           save.mutate()
@@ -179,23 +251,69 @@ export function ProductForm({ product, onSaved }: Props) {
           maxLength={200}
         />
 
+        {/* Phase 6.6 — single aisle picker + inline "+ Create" button.
+            Each aisle implies its parent admin Category, so options are
+            labelled "<aisle> — <category>". When the owner has no aisles
+            yet (or none under the right category), the "+ Create" button
+            opens a dialog that creates the aisle without leaving this
+            form, and auto-selects the new aisle on success. */}
         <div>
-          <Label className="mb-2 block">Category</Label>
+          <div className="flex items-center justify-between mb-2 gap-3">
+            <Label htmlFor="aisle">Aisle</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                // Pre-fill category to whatever the current selected aisle
+                // points to, otherwise leave empty for the owner to pick.
+                const current = subcategories.data?.find(
+                  (s) => s.id === form.subcategoryId,
+                )
+                setNewAisleCategoryId(current?.categoryId ?? "")
+                setNewAisleName("")
+                setAisleDialogOpen(true)
+              }}
+            >
+              <Plus className="size-3.5" />
+              Create aisle
+            </Button>
+          </div>
           <Select
-            value={form.categoryId}
-            onValueChange={(v) => set("categoryId", v)}
+            value={form.subcategoryId}
+            onValueChange={(v) => set("subcategoryId", v)}
+            disabled={subcategories.isPending}
           >
-            <SelectTrigger>
-              <SelectValue placeholder="Pick a category" />
+            <SelectTrigger id="aisle">
+              <SelectValue
+                placeholder={
+                  subcategories.isPending
+                    ? "Loading aisles…"
+                    : sortedSubs.length === 0
+                    ? "No aisles yet — tap “Create aisle”"
+                    : "Pick an aisle"
+                }
+              />
             </SelectTrigger>
             <SelectContent>
-              {categories.data?.map((c: Category) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
+              {sortedSubs.map((s: SubcategoryOwnerView) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {catNameById.get(s.categoryId) ?? "—"}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {subcategories.data && sortedSubs.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              No aisles yet. Tap{" "}
+              <span className="font-medium text-foreground">Create aisle</span>{" "}
+              above to make your first one — you&apos;ll come right back here.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -327,6 +445,84 @@ export function ProductForm({ product, onSaved }: Props) {
           </Button>
         </div>
       </form>
+
+      {/* Phase 6.6 — inline create-aisle dialog. Submits to the same
+          POST /v1/stores/me/subcategories endpoint as the Aisles page;
+          on success, auto-selects the new aisle on this form. */}
+      <Dialog open={aisleDialogOpen} onOpenChange={setAisleDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New aisle</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!newAisleCategoryId) {
+                toast.error("Pick a category first")
+                return
+              }
+              if (!newAisleName.trim()) {
+                toast.error("Aisle name is required")
+                return
+              }
+              createAisle.mutate()
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <Label htmlFor="aisle-cat" className="mb-2 block">
+                Category
+              </Label>
+              <Select
+                value={newAisleCategoryId}
+                onValueChange={setNewAisleCategoryId}
+              >
+                <SelectTrigger id="aisle-cat">
+                  <SelectValue placeholder="Pick a marketplace category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.data?.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Pick the marketplace shelf your aisle fits under.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="aisle-name" className="mb-2 block">
+                Aisle name
+              </Label>
+              <Input
+                id="aisle-name"
+                value={newAisleName}
+                onChange={(e) => setNewAisleName(e.target.value)}
+                placeholder="e.g. Basmati Rice"
+                maxLength={80}
+                required
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setAisleDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createAisle.isPending}>
+                {createAisle.isPending && (
+                  <Loader2 className="size-4 animate-spin" />
+                )}
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

@@ -81,7 +81,7 @@ export default function SearchPage() {
   return (
     <div className="min-h-svh bg-background pb-12">
       <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-border/40 px-4 sm:px-6 py-3 flex items-center gap-2">
-        <Link href="/" aria-label="Back">
+        <Link href="/stores" aria-label="Back">
           <Button variant="secondary" size="icon">
             <ArrowLeft className="size-4" />
           </Button>

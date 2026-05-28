@@ -30,12 +30,15 @@ export default function LoginPage() {
     try {
       const result = await api.auth.login({ email, password })
       if (result.user.role !== "OWNER") {
+        // The cookie IS set at this point — without sign-out, the
+        // (authed) guard picks it up on the next nav and loops.
+        await api.auth.logout().catch(() => undefined)
         toast.error("This account isn't an owner account")
         setSubmitting(false)
         return
       }
       setUser(result.user)
-      router.replace("/")
+      router.replace("/dashboard")
     } catch (err) {
       if (err instanceof ApiError && err.code === "FORBIDDEN") {
         toast.error("Account is pending admin approval")

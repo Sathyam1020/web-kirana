@@ -55,7 +55,7 @@ export default function ProductsPage() {
       api.products.list({
         limit: 100,
         includeInactive,
-        category: activeCategory ?? undefined,
+        categoryId: activeCategory ?? undefined,
         q: debounced.length >= 2 ? debounced : undefined,
       }),
   })

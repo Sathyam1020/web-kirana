@@ -28,11 +28,19 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const result = await api.auth.login({ email, password })
+      if (result.user.role !== "CUSTOMER") {
+        // Wrong-role: clear the cookie so the (authed) guard doesn't
+        // pick it up on the next navigation and loop.
+        await api.auth.logout().catch(() => undefined)
+        toast.error("This account isn't a customer account")
+        setSubmitting(false)
+        return
+      }
       // Server already set the session cookie; just hydrate the store
       // so the shell switches to authed UI without a flash.
       setUser(result.user)
       toast.success(`Welcome back, ${result.user.name}`)
-      router.replace("/")
+      router.replace("/stores")
     } catch (err) {
       toast.error(describeApiError(err))
     } finally {

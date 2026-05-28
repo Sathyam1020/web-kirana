@@ -29,7 +29,7 @@ export default function PendingPage() {
     try {
       const result = await api.auth.login({ email, password })
       setUser(result.user)
-      router.replace("/")
+      router.replace("/dashboard")
     } catch (err) {
       // still pending or wrong creds — silently keep polling
       void err

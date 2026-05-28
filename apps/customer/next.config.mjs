@@ -6,6 +6,11 @@ const API_INTERNAL_URL =
 
 const nextConfig = {
   transpilePackages: ["@workspace/ui", "@workspace/auth", "@workspace/api-client", "@workspace/shared"],
+  // Phase 6.6.12: per-app subdomain (customer.localhost:3000) so each app
+  // gets a host-scoped session cookie. Without this, Next 15 logs a
+  // cross-origin dev warning when HMR assets are fetched from the
+  // sub-host. The plain `localhost` entry keeps the old URL working.
+  allowedDevOrigins: ["customer.localhost", "localhost"],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**" },

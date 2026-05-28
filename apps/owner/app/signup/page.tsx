@@ -49,7 +49,7 @@ export default function SignupPage() {
       })
       // Defensive — if the hook is ever changed and signup actually
       // returns a session, send the owner to the dashboard.
-      router.replace("/")
+      router.replace("/dashboard")
     } catch (err) {
       if (err instanceof PendingApprovalError) {
         toast.success("Application submitted — awaiting admin approval")

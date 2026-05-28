@@ -28,6 +28,11 @@ export default function LoginPage() {
     try {
       const result = await api.auth.login({ email, password })
       if (result.user.role !== "ADMIN") {
+        // The cookie IS set at this point — without sign-out, the
+        // (authed) guard would pick up the wrong-role session on the
+        // next navigation and loop. Clear it so the user stays at a
+        // clean /login.
+        await api.auth.logout().catch(() => undefined)
         toast.error("This account isn't an admin")
         setSubmitting(false)
         return

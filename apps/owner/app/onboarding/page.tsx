@@ -76,7 +76,7 @@ export default function OnboardingPage() {
     onSuccess: (data) => {
       queryClient.setQueryData(["stores", "me"], data)
       toast.success("Store created. Open up when you're ready!")
-      router.replace("/")
+      router.replace("/dashboard")
     },
     onError: (err) => {
       toast.error(describeApiError(err))

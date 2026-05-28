@@ -4,6 +4,7 @@ import { useApi, useAuthStore } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { ThemeToggle } from "@workspace/ui/components/theme-toggle"
 import {
+  Building2,
   LayoutDashboard,
   LogOut,
   TicketPercent,
@@ -20,6 +21,8 @@ import { BrandMark } from "./brand-mark"
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/owners", label: "Owners", icon: Users },
+  // Phase 6.6 — taxonomy admin: Departments (L1) above Categories (L2).
+  { href: "/departments", label: "Departments", icon: Building2 },
   { href: "/categories", label: "Categories", icon: Tags },
   { href: "/coupons", label: "Coupons", icon: TicketPercent },
   { href: "/promotions", label: "Promotions", icon: Sparkles },

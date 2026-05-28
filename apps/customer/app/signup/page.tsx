@@ -48,7 +48,7 @@ export default function SignupPage() {
       // Server already set the session cookie via autoSignIn.
       setUser(result.user)
       toast.success(`Welcome, ${result.user.name}`)
-      router.replace("/")
+      router.replace("/stores")
     } catch (err) {
       if (err instanceof PendingApprovalError) {
         // Not possible on the customer path, but defensively handle it.

@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 
 import "@workspace/ui/globals.css"
 import { Providers } from "@/components/providers"
+import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import { readAuthCookieHint } from "@/lib/server-auth"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -38,6 +39,7 @@ export default async function RootLayout({
     >
       <body>
         <Providers ssrAuthed={ssrAuthed}>{children}</Providers>
+        <ServiceWorkerRegister />
       </body>
     </html>
   )
