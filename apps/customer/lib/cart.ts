@@ -46,7 +46,10 @@ function addOne(
     [product.id]: {
       productId: product.id,
       name: product.name,
-      pricePaise: product.pricePaise,
+      // Phase 6.8 — store the discounted (effective) price so the cart total
+      // reflects active product discounts. Order placement re-validates server-
+      // side anyway.
+      pricePaise: product.effectivePricePaise,
       imageUrl: product.imageUrl,
       unit: product.unit,
       quantity: (existing?.quantity ?? 0) + 1,

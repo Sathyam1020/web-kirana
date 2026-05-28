@@ -10,6 +10,7 @@ import type {
   CouponType,
   Department,
   DepartmentWithCategories,
+  DiscountType,
   NearbyResult,
   OwnerProductsListResult,
   PendingOwner,
@@ -101,6 +102,11 @@ export interface CreateProductBody {
   imagePublicId?: string
   isAvailable?: boolean
   searchAliases?: string[]
+  // Phase 6.8 — optional discount. discountValue: percent (1..100) for
+  // PERCENT, or paise for FLAT_PAISE. discountValidUntil: ISO string.
+  discountType?: DiscountType
+  discountValue?: number
+  discountValidUntil?: string
 }
 
 /**
@@ -116,6 +122,10 @@ export type UpdateProductBody = Partial<{
   imagePublicId: string | null
   isAvailable: boolean
   searchAliases: string[]
+  // Phase 6.8 — null clears the discount.
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: string | null
 }>
 
 export interface MoveProductBody {

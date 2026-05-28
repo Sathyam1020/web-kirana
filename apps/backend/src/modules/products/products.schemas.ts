@@ -1,5 +1,49 @@
 import { z } from "zod"
-import { Unit } from "../../generated/prisma/enums.js"
+import { DiscountType, Unit } from "../../generated/prisma/enums.js"
+
+// Phase 6.8 — per-product discount validation shared by create + update.
+// The FLAT_PAISE < pricePaise check needs the (possibly updated) price, so it
+// lives in the service; here we only check shape + the type/value pairing.
+function refineDiscount(
+  v: { discountType?: DiscountType | null; discountValue?: number | null },
+  ctx: z.RefinementCtx,
+): void {
+  const { discountType: type, discountValue: value } = v
+  const typeSet = type !== undefined && type !== null
+  const valueSet = value !== undefined && value !== null
+  if (typeSet && !valueSet) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["discountValue"],
+      message: "discountValue is required when discountType is set",
+    })
+    return
+  }
+  if (valueSet && !typeSet) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["discountType"],
+      message: "discountType is required when discountValue is set",
+    })
+    return
+  }
+  if (typeSet && valueSet) {
+    if (type === DiscountType.PERCENT && (value < 1 || value > 100)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["discountValue"],
+        message: "Percentage discount must be between 1 and 100",
+      })
+    }
+    if (type === DiscountType.FLAT_PAISE && value < 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["discountValue"],
+        message: "Flat discount must be at least ₹1",
+      })
+    }
+  }
+}
 
 const imageUrlSchema = z
   .string()
@@ -39,19 +83,25 @@ const searchAliasesSchema = z
  * L2/L1 are reachable via JOIN through Subcategory.categoryId on the read
  * path; on writes the owner picks a sub they own (verified server-side).
  */
-export const createProductBodySchema = z.strictObject({
-  subcategoryId: z.string().min(1).max(40),
-  name: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(1000).optional(),
-  // ₹1 floor, ₹50,000 ceiling. Sub-rupee items can be re-enabled by dropping
-  // the min to 1 if/when the marketplace decides to.
-  pricePaise: z.number().int().min(100).max(5_000_000),
-  unit: z.nativeEnum(Unit),
-  imageUrl: imageUrlSchema.optional(),
-  imagePublicId: imagePublicIdSchema.optional(),
-  isAvailable: z.boolean().optional().default(true),
-  searchAliases: searchAliasesSchema.optional(),
-})
+export const createProductBodySchema = z
+  .strictObject({
+    subcategoryId: z.string().min(1).max(40),
+    name: z.string().trim().min(1).max(200),
+    description: z.string().trim().max(1000).optional(),
+    // ₹1 floor, ₹50,000 ceiling. Sub-rupee items can be re-enabled by dropping
+    // the min to 1 if/when the marketplace decides to.
+    pricePaise: z.number().int().min(100).max(5_000_000),
+    unit: z.nativeEnum(Unit),
+    imageUrl: imageUrlSchema.optional(),
+    imagePublicId: imagePublicIdSchema.optional(),
+    isAvailable: z.boolean().optional().default(true),
+    searchAliases: searchAliasesSchema.optional(),
+    // Phase 6.8 — optional product discount.
+    discountType: z.nativeEnum(DiscountType).optional(),
+    discountValue: z.number().int().min(1).max(5_000_000).optional(),
+    discountValidUntil: z.string().datetime().optional(),
+  })
+  .superRefine(refineDiscount)
 export type CreateProductBody = z.infer<typeof createProductBodySchema>
 
 export const updateProductBodySchema = z
@@ -66,8 +116,14 @@ export const updateProductBodySchema = z
     imagePublicId: imagePublicIdSchema.nullable().optional(),
     isAvailable: z.boolean().optional(),
     searchAliases: searchAliasesSchema.optional(),
+    // Phase 6.8 — set the discount, or pass null to clear it. Clearing the
+    // type clears value + expiry too (handled in the service).
+    discountType: z.nativeEnum(DiscountType).nullable().optional(),
+    discountValue: z.number().int().min(1).max(5_000_000).nullable().optional(),
+    discountValidUntil: z.string().datetime().nullable().optional(),
   })
   .strict()
+  .superRefine(refineDiscount)
 export type UpdateProductBody = z.infer<typeof updateProductBodySchema>
 
 /**

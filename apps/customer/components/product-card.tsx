@@ -19,18 +19,32 @@ export function ProductCard({
   const cart = useCart()
   const inCart = cart.itemCount(product.id)
 
+  // Phase 6.8 — effectivePricePaise already accounts for expiry server-side,
+  // so a strictly-lower effective price means an active discount.
+  const hasDiscount = product.effectivePricePaise < product.pricePaise
+  const discountLabel = !hasDiscount
+    ? null
+    : product.discountType === "PERCENT" && product.discountValue !== null
+      ? `${product.discountValue}% OFF`
+      : `${formatPriceFromPaise(product.pricePaise - product.effectivePricePaise)} OFF`
+
   return (
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
       className="bg-card rounded-[var(--radius-md)] border border-border p-3 flex flex-col hover:shadow-md transition-shadow"
     >
-      <div className="aspect-square bg-surface-soft rounded-[var(--radius-md)] overflow-hidden mb-3">
+      <div className="relative aspect-square bg-surface-soft rounded-[var(--radius-md)] overflow-hidden mb-3">
         <SafeImage
           src={product.imageUrl}
           alt={product.name}
           fallback={<ShoppingBag className="size-8" />}
         />
+        {discountLabel && (
+          <span className="absolute top-1.5 left-1.5 rounded-[var(--radius-sm)] bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+            {discountLabel}
+          </span>
+        )}
       </div>
       <h3 className="text-sm font-medium line-clamp-2 min-h-10">
         {product.name}
@@ -42,9 +56,20 @@ export function ProductCard({
           (vs side-by-side) keeps the footer clean at every card width — the
           compact horizontal-scroll cards and the wider grid cards alike. */}
       <div className="mt-2 space-y-2">
-        <span className="block tabular-nums font-semibold text-base">
-          {formatPriceFromPaise(product.pricePaise)}
-        </span>
+        {hasDiscount ? (
+          <span className="flex items-baseline gap-1.5">
+            <span className="tabular-nums font-semibold text-base">
+              {formatPriceFromPaise(product.effectivePricePaise)}
+            </span>
+            <span className="tabular-nums text-xs text-muted-foreground line-through">
+              {formatPriceFromPaise(product.pricePaise)}
+            </span>
+          </span>
+        ) : (
+          <span className="block tabular-nums font-semibold text-base">
+            {formatPriceFromPaise(product.pricePaise)}
+          </span>
+        )}
         {product.isAvailable ? (
           <AnimatePresence mode="wait" initial={false}>
             {inCart > 0 ? (

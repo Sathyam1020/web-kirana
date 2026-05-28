@@ -1,6 +1,7 @@
 import { prisma } from "../../db/prisma.js"
 import { CouponScope, CouponType } from "../../generated/prisma/enums.js"
 import { NotFoundError } from "../../lib/errors.js"
+import { effectivePricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import type {
   AdminCreateCouponBody,
@@ -345,7 +346,17 @@ export async function preview(
   const productIds = input.cart.map((i) => i.productId)
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, isActive: true },
-    select: { id: true, storeId: true, pricePaise: true, isAvailable: true },
+    select: {
+      id: true,
+      storeId: true,
+      pricePaise: true,
+      isAvailable: true,
+      // Phase 6.8 — coupons stack on the discounted price, so the subtotal
+      // is computed from each product's effective (post-discount) price.
+      discountType: true,
+      discountValue: true,
+      discountValidUntil: true,
+    },
   })
   const byId = new Map(products.map((p) => [p.id, p]))
 
@@ -355,7 +366,7 @@ export async function preview(
     const p = byId.get(item.productId)
     if (p === undefined) return { isValid: false, reason: "PRODUCT_NOT_FOUND" }
     if (!p.isAvailable) return { isValid: false, reason: "PRODUCT_UNAVAILABLE" }
-    subtotal += p.pricePaise * item.quantity
+    subtotal += effectivePricePaise(p) * item.quantity
     storeIds.add(p.storeId)
   }
 

@@ -145,6 +145,9 @@ export interface NearbyResult {
 
 export type Unit = "KG" | "G" | "L" | "ML" | "PIECE" | "PACK" | "DOZEN"
 
+/** Phase 6.8 — per-product discount type. */
+export type DiscountType = "PERCENT" | "FLAT_PAISE"
+
 export const UNIT_LABELS: Record<Unit, string> = {
   KG: "kg",
   G: "g",
@@ -171,6 +174,11 @@ export interface ProductOwnerView {
   name: string
   description: string | null
   pricePaise: number
+  // Phase 6.8 — price after an active discount (== pricePaise if none).
+  effectivePricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: string | null
   unit: Unit
   imageUrl: string | null
   imagePublicId: string | null
@@ -197,6 +205,11 @@ export interface ProductPublicView {
   name: string
   description: string | null
   pricePaise: number
+  // Phase 6.8 — price after an active discount (== pricePaise if none).
+  effectivePricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: string | null
   unit: Unit
   imageUrl: string | null
   isAvailable: boolean

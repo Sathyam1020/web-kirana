@@ -1,9 +1,10 @@
 import { join, sql, type Sql } from "@prisma/client-runtime-utils"
 import { prisma } from "../../db/prisma.js"
-import type { Unit } from "../../generated/prisma/enums.js"
+import type { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { ConflictError, NotFoundError, StoreNotCreatedError } from "../../lib/errors.js"
 import { normalizePhone } from "../../lib/phone.js"
+import { effectivePricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import { getActiveBanner } from "../banners/banners.service.js"
 import { searchProducts } from "../search/search.service.js"
@@ -255,6 +256,11 @@ export interface ProductPublicView {
   name: string
   description: string | null
   pricePaise: number
+  // Phase 6.8 — price after an active discount (== pricePaise if none).
+  effectivePricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: Date | null
   unit: Unit
   imageUrl: string | null
   isAvailable: boolean
@@ -315,6 +321,9 @@ const PUBLIC_PRODUCT_SELECT = {
   name: true,
   description: true,
   pricePaise: true,
+  discountType: true,
+  discountValue: true,
+  discountValidUntil: true,
   unit: true,
   imageUrl: true,
   isAvailable: true,
@@ -341,6 +350,9 @@ function toPublicProductView(row: {
   name: string
   description: string | null
   pricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: Date | null
   unit: Unit
   imageUrl: string | null
   isAvailable: boolean
@@ -354,6 +366,7 @@ function toPublicProductView(row: {
   const { subcategory, ...rest } = row
   return {
     ...rest,
+    effectivePricePaise: effectivePricePaise(row),
     subcategoryName: subcategory.name,
     categoryId: subcategory.category.id,
     categoryName: subcategory.category.name,
@@ -831,6 +844,12 @@ export async function listStoreProducts(
         name: h.name,
         description: h.description,
         pricePaise: h.pricePaise,
+        // SearchHit doesn't carry discount fields; the search path shows the
+        // list price. Discounts surface on the browse path (toPublicProductView).
+        effectivePricePaise: h.pricePaise,
+        discountType: null,
+        discountValue: null,
+        discountValidUntil: null,
         unit: h.unit,
         imageUrl: h.imageUrl,
         isAvailable: h.isAvailable,

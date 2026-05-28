@@ -14,6 +14,7 @@ export type {
   CouponType,
   Department,
   DepartmentWithCategories,
+  DiscountType,
   ErrorEnvelope,
   ErrorEnvelopeBody,
   NearbyResult,

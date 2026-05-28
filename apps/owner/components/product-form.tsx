@@ -43,6 +43,9 @@ const UNITS: Unit[] = ["KG", "G", "L", "ML", "PIECE", "PACK", "DOZEN"]
  * as context on each option (e.g. "Basmati Rice — Atta, Rice & Dal") so
  * the owner still sees the marketplace shelf at a glance.
  */
+// "" = no discount. The value field means percent (PERCENT) or rupees (FLAT).
+type DiscountChoice = "" | "PERCENT" | "FLAT_PAISE"
+
 interface FormState {
   name: string
   subcategoryId: string
@@ -54,6 +57,9 @@ interface FormState {
   isAvailable: boolean
   aliasInput: string
   searchAliases: string[]
+  discountType: DiscountChoice
+  discountValueInput: string
+  discountValidUntil: string // "" or a YYYY-MM-DD date-input value
 }
 
 function emptyForm(): FormState {
@@ -68,6 +74,9 @@ function emptyForm(): FormState {
     isAvailable: true,
     aliasInput: "",
     searchAliases: [],
+    discountType: "",
+    discountValueInput: "",
+    discountValidUntil: "",
   }
 }
 
@@ -83,6 +92,14 @@ function fromProduct(p: ProductOwnerView): FormState {
     isAvailable: p.isAvailable,
     aliasInput: "",
     searchAliases: p.searchAliases,
+    discountType: p.discountType ?? "",
+    discountValueInput:
+      p.discountValue === null
+        ? ""
+        : p.discountType === "FLAT_PAISE"
+          ? paiseToRupees(p.discountValue)
+          : String(p.discountValue),
+    discountValidUntil: p.discountValidUntil ? p.discountValidUntil.slice(0, 10) : "",
   }
 }
 
@@ -166,6 +183,30 @@ export function ProductForm({ product, onSaved }: Props) {
       if (!product && form.subcategoryId === "") {
         throw new Error("Pick a subcategory first")
       }
+
+      // Discount — value is a percent (PERCENT) or rupees→paise (FLAT_PAISE).
+      let discountValue: number | null = null
+      if (form.discountType !== "") {
+        if (form.discountValueInput.trim() === "") {
+          throw new Error("Enter a discount value")
+        }
+        if (form.discountType === "PERCENT") {
+          discountValue = Math.round(Number(form.discountValueInput))
+          if (!(discountValue >= 1 && discountValue <= 100)) {
+            throw new Error("Discount % must be between 1 and 100")
+          }
+        } else {
+          discountValue = rupeesToPaise(form.discountValueInput)
+          if (discountValue < 100) throw new Error("Flat discount must be at least ₹1")
+          if (discountValue >= pricePaise) {
+            throw new Error("Flat discount must be less than the price")
+          }
+        }
+      }
+      const discountValidUntilISO = form.discountValidUntil
+        ? new Date(`${form.discountValidUntil}T23:59:59`).toISOString()
+        : undefined
+
       const base = {
         name: form.name.trim(),
         description: form.description.trim(),
@@ -188,6 +229,11 @@ export function ProductForm({ product, onSaved }: Props) {
           imagePublicId: base.imageUrl === "" ? null : form.imagePublicId,
           isAvailable: form.isAvailable,
           searchAliases: base.searchAliases,
+          // null clears the discount; otherwise set the trio.
+          discountType: form.discountType === "" ? null : form.discountType,
+          discountValue: form.discountType === "" ? null : discountValue,
+          discountValidUntil:
+            form.discountType === "" ? null : (discountValidUntilISO ?? null),
         }
         return api.products.update(product.id, patch)
       }
@@ -198,6 +244,13 @@ export function ProductForm({ product, onSaved }: Props) {
         imageUrl: base.imageUrl === "" ? undefined : base.imageUrl,
         imagePublicId: form.imagePublicId ?? undefined,
         isAvailable: form.isAvailable,
+        ...(form.discountType !== ""
+          ? {
+              discountType: form.discountType,
+              discountValue: discountValue ?? undefined,
+              discountValidUntil: discountValidUntilISO,
+            }
+          : {}),
       }
       return api.products.create(body)
     },
@@ -372,6 +425,60 @@ export function ProductForm({ product, onSaved }: Props) {
             }))
           }
         />
+
+        {/* Phase 6.8 — optional product discount */}
+        <div className="space-y-3 rounded-[var(--radius-md)] border border-border p-4">
+          <Label className="block">Discount (optional)</Label>
+          <Select
+            value={form.discountType === "" ? "NONE" : form.discountType}
+            onValueChange={(v) =>
+              setForm((f) => ({
+                ...f,
+                discountType: v === "NONE" ? "" : (v as DiscountChoice),
+                ...(v === "NONE"
+                  ? { discountValueInput: "", discountValidUntil: "" }
+                  : {}),
+              }))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NONE">No discount</SelectItem>
+              <SelectItem value="PERCENT">Percentage off</SelectItem>
+              <SelectItem value="FLAT_PAISE">Flat amount off</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {form.discountType !== "" && (
+            <>
+              <Field
+                id="discount-value"
+                label={
+                  form.discountType === "PERCENT"
+                    ? "Percent off (1–100)"
+                    : "Amount off (₹)"
+                }
+                value={form.discountValueInput}
+                onChange={(v) => set("discountValueInput", v)}
+                inputMode="decimal"
+                placeholder={form.discountType === "PERCENT" ? "e.g. 20" : "e.g. 15"}
+              />
+              <div>
+                <Label htmlFor="discount-expiry" className="mb-2 block">
+                  Discount ends (optional)
+                </Label>
+                <Input
+                  id="discount-expiry"
+                  type="date"
+                  value={form.discountValidUntil}
+                  onChange={(e) => set("discountValidUntil", e.target.value)}
+                />
+              </div>
+            </>
+          )}
+        </div>
 
         <div>
           <Label className="mb-2 block">

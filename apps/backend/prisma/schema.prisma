@@ -82,6 +82,12 @@ enum CouponType {
   FLAT_PAISE // value is the absolute discount in paise
 }
 
+// Phase 6.8 — per-product discounts (owner-set, applied automatically).
+enum DiscountType {
+  PERCENT // discountValue is 1..100 (percent off pricePaise)
+  FLAT_PAISE // discountValue is the absolute discount in paise (< pricePaise)
+}
+
 enum CouponScope {
   GLOBAL // any store; created by admin only
   STORE // scoped to one store; created by that store's owner
@@ -365,6 +371,15 @@ model Product {
   isPromoted    Boolean   @default(false)
   promotedUntil DateTime?
 
+  // Phase 6.8 — owner-set product discount, applied automatically (no coupon
+  // needed). discountValue meaning depends on discountType (see DiscountType).
+  // discountValidUntil null = until the owner removes it. A discount is only
+  // "active" when type+value are set AND not past validUntil — see
+  // src/lib/pricing.ts. Coupons stack ON TOP of the discounted price.
+  discountType       DiscountType?
+  discountValue      Int?
+  discountValidUntil DateTime?
+
   // Phase 4.2 search:
   //  - searchAliases: owner-curated synonyms / cross-language tokens
   //    (e.g., ["dhaniya", "धनिया", "coriander leaves"]). Bounded to 20
@@ -388,6 +403,8 @@ model Product {
   @@index([storeId, isFeatured, featuredOrder])
   // Promotion expiry check happens often in search/discovery
   @@index([isPromoted, promotedUntil])
+  // Phase 6.8 — "deals" filter / expiry sweep
+  @@index([discountValidUntil])
 }
 
 // --- Addresses ----------------------------------------------------------

@@ -1,7 +1,8 @@
 import { prisma } from "../../db/prisma.js"
-import { Unit } from "../../generated/prisma/enums.js"
+import { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { NotFoundError, ValidationError } from "../../lib/errors.js"
+import { effectivePricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import { searchProducts } from "../search/search.service.js"
 import type {
@@ -29,6 +30,11 @@ export interface ProductView {
   name: string
   description: string | null
   pricePaise: number
+  // Phase 6.8 — price after an active product discount (== pricePaise if none).
+  effectivePricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: Date | null
   unit: Unit
   imageUrl: string | null
   imagePublicId: string | null
@@ -50,6 +56,9 @@ const SELECT = {
   name: true,
   description: true,
   pricePaise: true,
+  discountType: true,
+  discountValue: true,
+  discountValidUntil: true,
   unit: true,
   imageUrl: true,
   imagePublicId: true,
@@ -83,6 +92,9 @@ function toView(row: {
   name: string
   description: string | null
   pricePaise: number
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: Date | null
   unit: Unit
   imageUrl: string | null
   imagePublicId: string | null
@@ -103,6 +115,7 @@ function toView(row: {
   const { subcategory, ...rest } = row
   return {
     ...rest,
+    effectivePricePaise: effectivePricePaise(row),
     subcategoryName: subcategory.name,
     categoryId: subcategory.category.id,
     categoryName: subcategory.category.name,
@@ -129,12 +142,32 @@ async function assertOwnSubcategory(
   }
 }
 
+/**
+ * FLAT_PAISE discounts must be strictly less than the price (a non-negative
+ * effective price). PERCENT is already bounded 1..100 by the schema. The
+ * schema can't do this check on update (price may be absent), so it lives here.
+ */
+function assertDiscountUnderPrice(
+  pricePaise: number,
+  discountType: DiscountType | null | undefined,
+  discountValue: number | null | undefined,
+): void {
+  if (
+    discountType === DiscountType.FLAT_PAISE &&
+    discountValue != null &&
+    discountValue >= pricePaise
+  ) {
+    throw new ValidationError("Flat discount must be less than the product price")
+  }
+}
+
 export async function createProduct(
   storeId: string,
   ownerId: string,
   input: CreateProductBody,
 ): Promise<ProductView> {
   await assertOwnSubcategory(storeId, input.subcategoryId)
+  assertDiscountUnderPrice(input.pricePaise, input.discountType, input.discountValue)
 
   try {
     const created = await prisma.product.create({
@@ -149,6 +182,11 @@ export async function createProduct(
         imagePublicId: input.imagePublicId,
         isAvailable: input.isAvailable ?? true,
         searchAliases: input.searchAliases ?? [],
+        discountType: input.discountType ?? null,
+        discountValue: input.discountValue ?? null,
+        discountValidUntil: input.discountValidUntil
+          ? new Date(input.discountValidUntil)
+          : null,
       },
       select: SELECT,
     })
@@ -217,6 +255,10 @@ export async function listProducts(
         isAvailable: h.isAvailable,
         // SearchHit doesn't carry these. Owner UIs that need them call
         // get-product after picking a row.
+        effectivePricePaise: h.pricePaise,
+        discountType: null,
+        discountValue: null,
+        discountValidUntil: null,
         imagePublicId: null,
         isFeatured: false,
         featuredOrder: null,
@@ -291,6 +333,41 @@ export async function updateProduct(
   if (input.imagePublicId !== undefined) data.imagePublicId = input.imagePublicId
   if (input.isAvailable !== undefined) data.isAvailable = input.isAvailable
   if (input.searchAliases !== undefined) data.searchAliases = input.searchAliases
+
+  // Phase 6.8 — discount. An explicit discountType drives the trio; null
+  // clears the whole discount. (The schema refine guarantees value is present
+  // when a type is set.)
+  if (input.discountType !== undefined) {
+    if (input.discountType === null) {
+      data.discountType = null
+      data.discountValue = null
+      data.discountValidUntil = null
+    } else {
+      data.discountType = input.discountType
+      data.discountValue = input.discountValue ?? null
+      data.discountValidUntil =
+        input.discountValidUntil != null ? new Date(input.discountValidUntil) : null
+    }
+  } else if (input.discountValidUntil !== undefined) {
+    // Adjust just the expiry of an existing discount.
+    data.discountValidUntil =
+      input.discountValidUntil === null ? null : new Date(input.discountValidUntil)
+  }
+
+  // FLAT_PAISE must stay under the price. Use the new price if it's being
+  // updated, else the product's current price.
+  if (data.discountType === DiscountType.FLAT_PAISE && data.discountValue != null) {
+    let priceForCheck = data.pricePaise as number | undefined
+    if (priceForCheck === undefined) {
+      const current = await prisma.product.findFirst({
+        where: { id: productId, storeId },
+        select: { pricePaise: true },
+      })
+      if (current === null) throw new NotFoundError("Product not found")
+      priceForCheck = current.pricePaise
+    }
+    assertDiscountUnderPrice(priceForCheck, DiscountType.FLAT_PAISE, data.discountValue as number)
+  }
 
   if (Object.keys(data).length === 0) {
     return getProduct(storeId, productId)
