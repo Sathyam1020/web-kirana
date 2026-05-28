@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate.js"
 import { categoriesAdminRouter } from "../categories/categories.routes.js"
 import { couponsAdminRouter } from "../coupons/coupons.routes.js"
 import { departmentsAdminRouter } from "../departments/departments.routes.js"
+import { uploadsAdminRouter } from "../uploads/uploads.routes.js"
 import * as controller from "./admin.controller.js"
 import {
   productIdParamSchema,
@@ -54,3 +55,7 @@ adminRouter.delete(
 
 // Coupon (GLOBAL) admin CRUD
 adminRouter.use("/coupons", couponsAdminRouter)
+
+// Cloudinary signed-upload signatures for category / department icons
+// (Phase 6.7). Already auth + ADMIN-gated by adminRouter above.
+adminRouter.use("/uploads", uploadsAdminRouter)

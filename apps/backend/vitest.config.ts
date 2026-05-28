@@ -12,6 +12,13 @@ export default defineConfig({
     globals: false,
     env: {
       NODE_ENV: "test",
+      // Dummy Cloudinary creds so the /uploads/signature endpoints are
+      // "configured" in tests and return a valid-shaped signed payload. The
+      // signature is computed with this fake secret — tests verify shape +
+      // authz, never a real upload (that's manual smoke).
+      CLOUDINARY_CLOUD_NAME: "test-cloud",
+      CLOUDINARY_API_KEY: "test-key",
+      CLOUDINARY_API_SECRET: "test-secret",
       // Wider than the per-request operation cost (~1-2s on Neon) so the
       // within-grace tests pass deterministically, but short enough that
       // the outside-grace test can wait it out without a slow sleep.

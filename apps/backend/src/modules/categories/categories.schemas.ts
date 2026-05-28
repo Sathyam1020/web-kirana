@@ -7,6 +7,9 @@ const urlSchema = z
     message: "URL must start with http:// or https://",
   })
 
+// Cloudinary public_id, persisted alongside iconUrl for future cleanup.
+const publicIdSchema = z.string().max(255)
+
 /**
  * Categories (L2). Admin-owned, scoped to a Department. (departmentId, name)
  * is unique — two departments can both have a category called "Beverages".
@@ -16,6 +19,7 @@ export const createCategoryBodySchema = z.strictObject({
   name: z.string().trim().min(1).max(80),
   displayOrder: z.number().int().min(0).max(10_000).optional().default(0),
   iconUrl: urlSchema.optional(),
+  iconPublicId: publicIdSchema.optional(),
 })
 export type CreateCategoryBody = z.infer<typeof createCategoryBodySchema>
 
@@ -24,6 +28,7 @@ export const updateCategoryBodySchema = z
     name: z.string().trim().min(1).max(80).optional(),
     displayOrder: z.number().int().min(0).max(10_000).optional(),
     iconUrl: urlSchema.nullable().optional(),
+    iconPublicId: publicIdSchema.nullable().optional(),
     // departmentId reparenting is intentionally NOT supported here — moving
     // an L2 between departments invalidates every subcategory + product
     // under it from a discovery perspective, so it should be a deliberate

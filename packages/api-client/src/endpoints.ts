@@ -25,6 +25,9 @@ import type {
   SubcategoryPublicView,
   SuccessEnvelope,
   Unit,
+  UploadedImage,
+  UploadScope,
+  UploadSignature,
 } from "./types"
 
 // ---------- Auth (Phase 6.5 — better-auth) ------------------------------
@@ -66,6 +69,7 @@ export interface CreateStoreBody {
   city: string
   pincode: string
   imageUrl?: string
+  imagePublicId?: string
 }
 
 export type UpdateStoreBody = Partial<{
@@ -80,6 +84,7 @@ export type UpdateStoreBody = Partial<{
   city: string
   pincode: string
   imageUrl: string | null
+  imagePublicId: string | null
 }>
 
 // ---------- Products (owner) --------------------------------------------
@@ -92,6 +97,7 @@ export interface CreateProductBody {
   pricePaise: number
   unit: Unit
   imageUrl?: string
+  imagePublicId?: string
   isAvailable?: boolean
   searchAliases?: string[]
 }
@@ -106,6 +112,7 @@ export type UpdateProductBody = Partial<{
   pricePaise: number
   unit: Unit
   imageUrl: string | null
+  imagePublicId: string | null
   isAvailable: boolean
   searchAliases: string[]
 }>
@@ -152,12 +159,14 @@ export interface CreateDepartmentBody {
   name: string
   displayOrder?: number
   iconUrl?: string
+  iconPublicId?: string
 }
 
 export type UpdateDepartmentBody = Partial<{
   name: string
   displayOrder: number
   iconUrl: string | null
+  iconPublicId: string | null
 }>
 
 // ---------- Stores (public) ---------------------------------------------
@@ -254,6 +263,7 @@ export interface CreateCategoryBody {
   name: string
   displayOrder?: number
   iconUrl?: string
+  iconPublicId?: string
 }
 
 /** Public list query supports narrowing to one department. */
@@ -265,6 +275,7 @@ export type UpdateCategoryBody = Partial<{
   name: string
   displayOrder: number
   iconUrl: string | null
+  iconPublicId: string | null
 }>
 
 export interface PromoteProductBody {
@@ -377,6 +388,16 @@ export function buildApi(http: AxiosInstance) {
           http.patch(`/v1/admin/departments/${id}`, body),
           "department",
         ),
+    },
+
+    uploads: {
+      // Cloudinary signed-upload signatures (Phase 6.7). The folder is derived
+      // server-side (owner → own store; admin → global icons), so callers only
+      // pass the scope. Use `uploadToCloudinary` to run the full flow.
+      ownerSignature: (scope: "product" | "store") =>
+        unwrap<UploadSignature>(http.post("/v1/uploads/signature", { scope })),
+      adminSignature: (scope: "category" | "department") =>
+        unwrap<UploadSignature>(http.post("/v1/admin/uploads/signature", { scope })),
     },
 
     categories: {
@@ -615,6 +636,48 @@ export function buildApi(http: AxiosInstance) {
 }
 
 export type Api = ReturnType<typeof buildApi>
+
+/**
+ * Phase 6.7 — run the full signed-upload flow: ask our backend for a
+ * signature (folder derived server-side), then POST the file directly to
+ * Cloudinary. No image bytes pass through our API. Returns { url, publicId }
+ * to persist on the entity. Throws if uploads aren't configured (503) or
+ * Cloudinary rejects the upload.
+ *
+ * The posted fields exactly match what the backend signed ({ folder,
+ * timestamp }) plus the unsigned api_key — mismatches are the #1 cause of
+ * "Invalid Signature". See apps/backend/src/lib/cloudinary.ts.
+ */
+export async function uploadToCloudinary(
+  api: Api,
+  scope: UploadScope,
+  file: File,
+): Promise<UploadedImage> {
+  const signature =
+    scope === "product" || scope === "store"
+      ? await api.uploads.ownerSignature(scope)
+      : await api.uploads.adminSignature(scope)
+
+  const form = new FormData()
+  form.append("file", file)
+  form.append("api_key", signature.apiKey)
+  form.append("timestamp", String(signature.timestamp))
+  form.append("signature", signature.signature)
+  form.append("folder", signature.folder)
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`,
+    { method: "POST", body: form },
+  )
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    throw new Error(
+      `Cloudinary upload failed (${res.status}): ${detail.slice(0, 300)}`,
+    )
+  }
+  const data = (await res.json()) as { secure_url: string; public_id: string }
+  return { url: data.secure_url, publicId: data.public_id }
+}
 
 /** Strip undefined/null, coerce booleans to "true"/"false" for the backend zod coerce pipeline. */
 function serializeQuery(q: object): Record<string, unknown> {

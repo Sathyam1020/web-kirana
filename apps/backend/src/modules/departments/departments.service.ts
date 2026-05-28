@@ -12,6 +12,7 @@ export interface DepartmentView {
   name: string
   displayOrder: number
   iconUrl: string | null
+  iconPublicId: string | null
   createdAt: Date
 }
 
@@ -29,6 +30,7 @@ const SELECT = {
   name: true,
   displayOrder: true,
   iconUrl: true,
+  iconPublicId: true,
   createdAt: true,
 } as const
 
@@ -69,6 +71,7 @@ export async function createDepartment(
         name: input.name,
         displayOrder: input.displayOrder,
         iconUrl: input.iconUrl,
+        iconPublicId: input.iconPublicId,
       },
       select: SELECT,
     })
@@ -92,6 +95,7 @@ export async function updateDepartment(
   if (input.name !== undefined) data.name = input.name
   if (input.displayOrder !== undefined) data.displayOrder = input.displayOrder
   if (input.iconUrl !== undefined) data.iconUrl = input.iconUrl
+  if (input.iconPublicId !== undefined) data.iconPublicId = input.iconPublicId
 
   if (Object.keys(data).length === 0) {
     const existing = await prisma.department.findUnique({

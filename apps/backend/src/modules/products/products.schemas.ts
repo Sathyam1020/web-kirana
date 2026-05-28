@@ -8,6 +8,10 @@ const imageUrlSchema = z
     message: "imageUrl must start with http:// or https://",
   })
 
+// Cloudinary public_id (e.g. "products/<storeId>/<id>"). Opaque string,
+// persisted alongside imageUrl for future orphan-asset cleanup (Phase 6.7).
+const imagePublicIdSchema = z.string().max(255)
+
 // Coerce-then-check for query params that arrive as strings. The default-
 // before-transform pattern keeps both the input ("true"/"false" string or
 // missing) and output (boolean) types correct.
@@ -44,6 +48,7 @@ export const createProductBodySchema = z.strictObject({
   pricePaise: z.number().int().min(100).max(5_000_000),
   unit: z.nativeEnum(Unit),
   imageUrl: imageUrlSchema.optional(),
+  imagePublicId: imagePublicIdSchema.optional(),
   isAvailable: z.boolean().optional().default(true),
   searchAliases: searchAliasesSchema.optional(),
 })
@@ -58,6 +63,7 @@ export const updateProductBodySchema = z
     pricePaise: z.number().int().min(100).max(5_000_000).optional(),
     unit: z.nativeEnum(Unit).optional(),
     imageUrl: imageUrlSchema.nullable().optional(),
+    imagePublicId: imagePublicIdSchema.nullable().optional(),
     isAvailable: z.boolean().optional(),
     searchAliases: searchAliasesSchema.optional(),
   })

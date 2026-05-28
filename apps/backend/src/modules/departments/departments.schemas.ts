@@ -7,6 +7,9 @@ const urlSchema = z
     message: "URL must start with http:// or https://",
   })
 
+// Cloudinary public_id, persisted alongside iconUrl for future cleanup.
+const publicIdSchema = z.string().max(255)
+
 /**
  * Departments (L1) — admin-owned, global. Same shape as Category at L2;
  * a small fixed grid of these is what the customer PWA renders at the top
@@ -16,6 +19,7 @@ export const createDepartmentBodySchema = z.strictObject({
   name: z.string().trim().min(1).max(80),
   displayOrder: z.number().int().min(0).max(10_000).optional().default(0),
   iconUrl: urlSchema.optional(),
+  iconPublicId: publicIdSchema.optional(),
 })
 export type CreateDepartmentBody = z.infer<typeof createDepartmentBodySchema>
 
@@ -24,6 +28,7 @@ export const updateDepartmentBodySchema = z
     name: z.string().trim().min(1).max(80).optional(),
     displayOrder: z.number().int().min(0).max(10_000).optional(),
     iconUrl: urlSchema.nullable().optional(),
+    iconPublicId: publicIdSchema.nullable().optional(),
   })
   .strict()
 export type UpdateDepartmentBody = z.infer<typeof updateDepartmentBodySchema>

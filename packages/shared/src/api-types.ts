@@ -46,6 +46,8 @@ export interface Department {
   name: string
   displayOrder: number
   iconUrl: string | null
+  // Cloudinary public_id for iconUrl (Phase 6.7). Internal cleanup handle.
+  iconPublicId: string | null
   createdAt: string
 }
 
@@ -64,6 +66,7 @@ export interface Category {
   name: string
   displayOrder: number
   iconUrl: string | null
+  iconPublicId: string | null
   createdAt: string
 }
 
@@ -105,6 +108,7 @@ export interface StoreOwnerView {
   city: string
   pincode: string
   imageUrl: string | null
+  imagePublicId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -169,6 +173,7 @@ export interface ProductOwnerView {
   pricePaise: number
   unit: Unit
   imageUrl: string | null
+  imagePublicId: string | null
   isActive: boolean
   isAvailable: boolean
   isFeatured: boolean
@@ -267,6 +272,29 @@ export interface OwnerProductsListResult {
   items: ProductOwnerView[]
   nextCursor: string | null
   hasMore: boolean
+}
+
+// --- Uploads (Phase 6.7: Cloudinary signed uploads) ---------------------
+
+/** What an entity image can belong to. Owner scopes vs admin (icon) scopes. */
+export type UploadScope = "product" | "store" | "category" | "department"
+
+/**
+ * Signed payload the backend returns. The browser POSTs these fields (plus
+ * the file) directly to Cloudinary — no bytes pass through our API.
+ */
+export interface UploadSignature {
+  cloudName: string
+  apiKey: string
+  timestamp: number
+  signature: string
+  folder: string
+}
+
+/** The bits of Cloudinary's upload response we persist on the entity. */
+export interface UploadedImage {
+  url: string
+  publicId: string
 }
 
 // --- Search -------------------------------------------------------------

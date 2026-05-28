@@ -8,8 +8,10 @@ import type {
   Unit,
   UpdateProductBody,
 } from "@workspace/api-client"
+import { uploadToCloudinary } from "@workspace/api-client"
 import { Button } from "@workspace/ui/components/button"
 import { Card } from "@workspace/ui/components/card"
+import { ImageUpload } from "@workspace/ui/components/image-upload"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
@@ -48,6 +50,7 @@ interface FormState {
   priceRupees: string
   unit: Unit
   imageUrl: string
+  imagePublicId: string | null
   isAvailable: boolean
   aliasInput: string
   searchAliases: string[]
@@ -61,6 +64,7 @@ function emptyForm(): FormState {
     priceRupees: "",
     unit: "PIECE",
     imageUrl: "",
+    imagePublicId: null,
     isAvailable: true,
     aliasInput: "",
     searchAliases: [],
@@ -75,6 +79,7 @@ function fromProduct(p: ProductOwnerView): FormState {
     priceRupees: paiseToRupees(p.pricePaise),
     unit: p.unit,
     imageUrl: p.imageUrl ?? "",
+    imagePublicId: p.imagePublicId ?? null,
     isAvailable: p.isAvailable,
     aliasInput: "",
     searchAliases: p.searchAliases,
@@ -180,6 +185,7 @@ export function ProductForm({ product, onSaved }: Props) {
           pricePaise: base.pricePaise,
           unit: base.unit,
           imageUrl: base.imageUrl === "" ? null : base.imageUrl,
+          imagePublicId: base.imageUrl === "" ? null : form.imagePublicId,
           isAvailable: form.isAvailable,
           searchAliases: base.searchAliases,
         }
@@ -190,6 +196,7 @@ export function ProductForm({ product, onSaved }: Props) {
         subcategoryId: form.subcategoryId,
         description: base.description === "" ? undefined : base.description,
         imageUrl: base.imageUrl === "" ? undefined : base.imageUrl,
+        imagePublicId: form.imagePublicId ?? undefined,
         isAvailable: form.isAvailable,
       }
       return api.products.create(body)
@@ -352,14 +359,18 @@ export function ProductForm({ product, onSaved }: Props) {
           maxLength={1000}
         />
 
-        <Field
-          id="imageUrl"
-          label="Image URL (optional)"
-          value={form.imageUrl}
-          onChange={(v) => set("imageUrl", v)}
-          placeholder="https://"
-          maxLength={500}
-          helper="Image uploads land in Phase 12. Paste a URL until then."
+        <ImageUpload
+          label="Product image (optional)"
+          aspect="square"
+          value={form.imageUrl || null}
+          onUpload={(file) => uploadToCloudinary(api, "product", file)}
+          onChange={(result) =>
+            setForm((f) => ({
+              ...f,
+              imageUrl: result?.url ?? "",
+              imagePublicId: result?.publicId ?? null,
+            }))
+          }
         />
 
         <div>

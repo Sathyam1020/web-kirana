@@ -64,6 +64,12 @@ export class RateLimitError extends AppError {
   }
 }
 
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "Service temporarily unavailable") {
+    super(503, ErrorCode.SERVICE_UNAVAILABLE, message)
+  }
+}
+
 // --- Domain (filled out as later phases need them) ----------------------
 
 export class StoreClosedError extends AppError {

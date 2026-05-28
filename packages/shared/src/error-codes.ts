@@ -9,6 +9,7 @@ export const ErrorCode = {
   CONFLICT: "CONFLICT",
   RATE_LIMITED: "RATE_LIMITED",
   INTERNAL: "INTERNAL",
+  SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
 
   // Domain-specific (filled in by later phases).
   STORE_CLOSED: "STORE_CLOSED",

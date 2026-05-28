@@ -31,6 +31,7 @@ export interface ProductView {
   pricePaise: number
   unit: Unit
   imageUrl: string | null
+  imagePublicId: string | null
   isActive: boolean
   isAvailable: boolean
   isFeatured: boolean
@@ -51,6 +52,7 @@ const SELECT = {
   pricePaise: true,
   unit: true,
   imageUrl: true,
+  imagePublicId: true,
   isActive: true,
   isAvailable: true,
   isFeatured: true,
@@ -83,6 +85,7 @@ function toView(row: {
   pricePaise: number
   unit: Unit
   imageUrl: string | null
+  imagePublicId: string | null
   isActive: boolean
   isAvailable: boolean
   isFeatured: boolean
@@ -143,6 +146,7 @@ export async function createProduct(
         pricePaise: input.pricePaise,
         unit: input.unit,
         imageUrl: input.imageUrl,
+        imagePublicId: input.imagePublicId,
         isAvailable: input.isAvailable ?? true,
         searchAliases: input.searchAliases ?? [],
       },
@@ -213,6 +217,7 @@ export async function listProducts(
         isAvailable: h.isAvailable,
         // SearchHit doesn't carry these. Owner UIs that need them call
         // get-product after picking a row.
+        imagePublicId: null,
         isFeatured: false,
         featuredOrder: null,
         isPromoted: false,
@@ -283,6 +288,7 @@ export async function updateProduct(
   if (input.pricePaise !== undefined) data.pricePaise = input.pricePaise
   if (input.unit !== undefined) data.unit = input.unit
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
+  if (input.imagePublicId !== undefined) data.imagePublicId = input.imagePublicId
   if (input.isAvailable !== undefined) data.isAvailable = input.isAvailable
   if (input.searchAliases !== undefined) data.searchAliases = input.searchAliases
 

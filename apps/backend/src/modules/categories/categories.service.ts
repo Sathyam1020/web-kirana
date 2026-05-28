@@ -14,6 +14,7 @@ export interface CategoryView {
   name: string
   displayOrder: number
   iconUrl: string | null
+  iconPublicId: string | null
   createdAt: Date
 }
 
@@ -23,6 +24,7 @@ const SELECT = {
   name: true,
   displayOrder: true,
   iconUrl: true,
+  iconPublicId: true,
   createdAt: true,
 } as const
 
@@ -59,6 +61,7 @@ export async function createCategory(
         name: input.name,
         displayOrder: input.displayOrder,
         iconUrl: input.iconUrl,
+        iconPublicId: input.iconPublicId,
       },
       select: SELECT,
     })
@@ -78,6 +81,7 @@ export async function updateCategory(
   if (input.name !== undefined) data.name = input.name
   if (input.displayOrder !== undefined) data.displayOrder = input.displayOrder
   if (input.iconUrl !== undefined) data.iconUrl = input.iconUrl // null OK to clear
+  if (input.iconPublicId !== undefined) data.iconPublicId = input.iconPublicId
 
   if (Object.keys(data).length === 0) {
     const existing = await prisma.category.findUnique({ where: { id }, select: SELECT })

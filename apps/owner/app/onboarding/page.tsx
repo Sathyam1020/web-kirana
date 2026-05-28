@@ -1,8 +1,10 @@
 "use client"
 
+import { uploadToCloudinary } from "@workspace/api-client"
 import { useApi, useAuthGuard } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { Card } from "@workspace/ui/components/card"
+import { ImageUpload } from "@workspace/ui/components/image-upload"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { PhoneInput } from "@workspace/ui/components/phone-input"
@@ -28,6 +30,7 @@ interface StoreFormState {
   deliveryRadiusMeters: string
   minOrderRupees: string
   imageUrl: string
+  imagePublicId: string | null
 }
 
 const INITIAL: StoreFormState = {
@@ -43,6 +46,7 @@ const INITIAL: StoreFormState = {
   deliveryRadiusMeters: "3000",
   minOrderRupees: "0",
   imageUrl: "",
+  imagePublicId: null,
 }
 
 export default function OnboardingPage() {
@@ -71,6 +75,7 @@ export default function OnboardingPage() {
         city: form.city.trim(),
         pincode: form.pincode.trim(),
         imageUrl: form.imageUrl.trim() || undefined,
+        imagePublicId: form.imagePublicId ?? undefined,
       })
     },
     onSuccess: (data) => {
@@ -262,14 +267,18 @@ export default function OnboardingPage() {
               />
             </div>
 
-            <Field
-              id="imageUrl"
-              label="Store image URL (optional)"
-              value={form.imageUrl}
-              onChange={(v) => set("imageUrl", v)}
-              placeholder="https://"
-              maxLength={500}
-              helper="Image uploads land in Phase 12. Paste a URL for now."
+            <ImageUpload
+              label="Store image (optional)"
+              aspect="wide"
+              value={form.imageUrl || null}
+              onUpload={(file) => uploadToCloudinary(api, "store", file)}
+              onChange={(result) =>
+                setForm((prev) => ({
+                  ...prev,
+                  imageUrl: result?.url ?? "",
+                  imagePublicId: result?.publicId ?? null,
+                }))
+              }
             />
 
             <Button

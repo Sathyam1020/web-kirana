@@ -16,6 +16,7 @@ import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
 import { departmentsPublicRouter } from "./modules/departments/departments.routes.js"
 import { searchRouter } from "./modules/search/search.routes.js"
 import { storesPublicRouter, storesRouter } from "./modules/stores/stores.routes.js"
+import { uploadsRouter } from "./modules/uploads/uploads.routes.js"
 
 export function buildApp(): Express {
   const app = express()
@@ -78,6 +79,7 @@ export function buildApp(): Express {
   v1.use("/coupons", couponsPublicRouter)
   v1.use("/departments", departmentsPublicRouter)
   v1.use("/search", searchRouter)
+  v1.use("/uploads", uploadsRouter)
   // Phase 5: public discovery mounted BEFORE owner-side router. Explicit
   // GETs on storesPublicRouter (/nearby, /:id, /:id/products) handle public
   // paths; the /:id handlers call next() when id === "me" so /v1/stores/me

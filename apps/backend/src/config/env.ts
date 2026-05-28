@@ -32,6 +32,15 @@ const EnvSchema = z
     BETTER_AUTH_URL: z.string().url(),
     // Optional cookie scope for cross-subdomain prod (e.g. `.kirana.com`).
     AUTH_COOKIE_DOMAIN: z.string().optional(),
+
+    // --- Cloudinary (Phase 6.7: signed image uploads) ---------------------
+    // Optional on purpose: the backend boots without them so dev isn't
+    // blocked. The /uploads/signature endpoints return 503 until all three
+    // are set. Never sent to the client except cloud_name + api_key (which
+    // are public by design); the api_secret only ever signs server-side.
+    CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    CLOUDINARY_API_KEY: z.string().optional(),
+    CLOUDINARY_API_SECRET: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET.length < 48) {

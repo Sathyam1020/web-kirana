@@ -54,7 +54,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 6     | Customer addresses CRUD                                            | ✅ done        | `1195c46` |
 | 6.5   | Auth replacement — better-auth (cookie sessions; fixes refresh bug)| ✅ done        | `b76803d` |
 | 6.6   | Taxonomy upgrade — Department/Category/Subcategory + product re-FK | ✅ done        | `2eab966` |
-| 6.7   | Cloudinary signed uploads                                          | ⏳ pending     |           |
+| 6.7   | Cloudinary signed uploads (live smoke pending real creds)          | ✅ done        | _pending_ |
 | 6.8   | Product-level discounts                                            | ⏳ pending     |           |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |

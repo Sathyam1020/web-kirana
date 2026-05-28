@@ -28,6 +28,7 @@ export interface StoreView {
   city: string
   pincode: string
   imageUrl: string | null
+  imagePublicId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -48,6 +49,7 @@ const SELECT = {
   city: true,
   pincode: true,
   imageUrl: true,
+  imagePublicId: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -68,6 +70,7 @@ function toView(row: {
   city: string
   pincode: string
   imageUrl: string | null
+  imagePublicId: string | null
   createdAt: Date
   updatedAt: Date
 }): StoreView {
@@ -105,6 +108,7 @@ export async function createOwnStore(
         city: input.city,
         pincode: input.pincode,
         imageUrl: input.imageUrl,
+        imagePublicId: input.imagePublicId,
         // isOpen defaults to false in the schema — new stores require an
         // explicit open before they appear in /stores/nearby.
       },
@@ -144,6 +148,7 @@ export async function updateOwnStore(
   if (input.city !== undefined) data.city = input.city
   if (input.pincode !== undefined) data.pincode = input.pincode
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
+  if (input.imagePublicId !== undefined) data.imagePublicId = input.imagePublicId
 
   if (Object.keys(data).length === 0) {
     return getOwnStore(ownerId)

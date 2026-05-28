@@ -1,9 +1,10 @@
 "use client"
 
-import { ApiError, type Department } from "@workspace/api-client"
+import { ApiError, type Department, uploadToCloudinary } from "@workspace/api-client"
 import { useApi } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { Card } from "@workspace/ui/components/card"
+import { ImageUpload } from "@workspace/ui/components/image-upload"
 import {
   Dialog,
   DialogContent,
@@ -32,9 +33,10 @@ interface FormState {
   name: string
   displayOrder: string
   iconUrl: string
+  iconPublicId: string | null
 }
 
-const EMPTY: FormState = { name: "", displayOrder: "0", iconUrl: "" }
+const EMPTY: FormState = { name: "", displayOrder: "0", iconUrl: "", iconPublicId: null }
 
 /**
  * Phase 6.6 — admin CRUD for Departments (L1 taxonomy).
@@ -74,12 +76,14 @@ export default function DepartmentsPage() {
           name: form.name.trim(),
           displayOrder,
           iconUrl: trimmedIcon === "" ? null : trimmedIcon,
+          iconPublicId: trimmedIcon === "" ? null : form.iconPublicId,
         })
       }
       return api.departments.adminCreate({
         name: form.name.trim(),
         displayOrder,
         iconUrl: trimmedIcon === "" ? undefined : trimmedIcon,
+        iconPublicId: form.iconPublicId ?? undefined,
       })
     },
     onSuccess: () => {
@@ -107,6 +111,7 @@ export default function DepartmentsPage() {
       name: d.name,
       displayOrder: String(d.displayOrder),
       iconUrl: d.iconUrl ?? "",
+      iconPublicId: d.iconPublicId ?? null,
     })
     setOpen(true)
   }
@@ -179,20 +184,19 @@ export default function DepartmentsPage() {
                   Lower numbers surface first in the customer department grid.
                 </p>
               </div>
-              <div>
-                <Label htmlFor="icon" className="mb-2 block">
-                  Icon URL (optional)
-                </Label>
-                <Input
-                  id="icon"
-                  value={form.iconUrl}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, iconUrl: e.target.value }))
-                  }
-                  placeholder="https://"
-                  maxLength={500}
-                />
-              </div>
+              <ImageUpload
+                label="Icon (optional)"
+                aspect="square"
+                value={form.iconUrl || null}
+                onUpload={(file) => uploadToCloudinary(api, "department", file)}
+                onChange={(result) =>
+                  setForm((p) => ({
+                    ...p,
+                    iconUrl: result?.url ?? "",
+                    iconPublicId: result?.publicId ?? null,
+                  }))
+                }
+              />
               <DialogFooter>
                 <Button
                   type="button"

@@ -209,6 +209,9 @@ model Department {
   name         String   @unique
   displayOrder Int      @default(0)
   iconUrl      String?
+  // Cloudinary public_id for iconUrl (Phase 6.7) — kept for future cleanup
+  // of orphaned assets. Null when the icon is an external URL or unset.
+  iconPublicId String?
   createdAt    DateTime @default(now())
 
   categories Category[]
@@ -224,6 +227,7 @@ model Category {
   name         String
   displayOrder Int      @default(0)
   iconUrl      String?
+  iconPublicId String?
   createdAt    DateTime @default(now())
 
   subcategories Subcategory[]
@@ -285,6 +289,8 @@ model Store {
   city        String
   pincode     String
   imageUrl    String?
+  // Cloudinary public_id for imageUrl (Phase 6.7) — for future cleanup.
+  imagePublicId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -315,6 +321,8 @@ model Product {
   pricePaise  Int
   unit        Unit
   imageUrl    String?
+  // Cloudinary public_id for imageUrl (Phase 6.7) — for future cleanup.
+  imagePublicId String?
 
   // Soft delete: isActive=false means the product is hidden from the catalog
   // but remains for historical orders that reference it.

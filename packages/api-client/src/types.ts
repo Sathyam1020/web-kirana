@@ -38,6 +38,9 @@ export type {
   SubcategoryPublicView,
   SuccessEnvelope,
   Unit,
+  UploadedImage,
+  UploadScope,
+  UploadSignature,
 } from "@workspace/shared"
 
 export { UNIT_LABELS } from "@workspace/shared"

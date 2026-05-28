@@ -16,6 +16,9 @@ const imageUrlSchema = z
     message: "imageUrl must start with http:// or https://",
   })
 
+// Cloudinary public_id, persisted alongside imageUrl for future cleanup.
+const imagePublicIdSchema = z.string().max(255)
+
 export const createStoreBodySchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).optional(),
@@ -28,6 +31,7 @@ export const createStoreBodySchema = z.strictObject({
   city: z.string().trim().min(1).max(100),
   pincode: z.string().trim().min(3).max(20),
   imageUrl: imageUrlSchema.optional(),
+  imagePublicId: imagePublicIdSchema.optional(),
 })
 export type CreateStoreBody = z.infer<typeof createStoreBodySchema>
 
@@ -49,6 +53,7 @@ export const updateStoreBodySchema = z
     city: z.string().trim().min(1).max(100).optional(),
     pincode: z.string().trim().min(3).max(20).optional(),
     imageUrl: imageUrlSchema.nullable().optional(),
+    imagePublicId: imagePublicIdSchema.nullable().optional(),
   })
   .strict()
   .superRefine((val, ctx) => {

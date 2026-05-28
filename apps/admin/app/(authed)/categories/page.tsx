@@ -1,9 +1,10 @@
 "use client"
 
-import { ApiError, type Category } from "@workspace/api-client"
+import { ApiError, type Category, uploadToCloudinary } from "@workspace/api-client"
 import { useApi } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { Card } from "@workspace/ui/components/card"
+import { ImageUpload } from "@workspace/ui/components/image-upload"
 import {
   Dialog,
   DialogContent,
@@ -39,11 +40,18 @@ interface FormState {
   name: string
   displayOrder: string
   iconUrl: string
+  iconPublicId: string | null
   // Phase 6.6 — every category must live under an admin Department.
   departmentId: string
 }
 
-const EMPTY: FormState = { name: "", displayOrder: "0", iconUrl: "", departmentId: "" }
+const EMPTY: FormState = {
+  name: "",
+  displayOrder: "0",
+  iconUrl: "",
+  iconPublicId: null,
+  departmentId: "",
+}
 
 export default function CategoriesPage() {
   const api = useApi()
@@ -81,6 +89,7 @@ export default function CategoriesPage() {
           name: form.name.trim(),
           displayOrder,
           iconUrl: trimmedIcon === "" ? null : trimmedIcon,
+          iconPublicId: trimmedIcon === "" ? null : form.iconPublicId,
         })
       }
       if (form.departmentId === "") {
@@ -91,6 +100,7 @@ export default function CategoriesPage() {
         name: form.name.trim(),
         displayOrder,
         iconUrl: trimmedIcon === "" ? undefined : trimmedIcon,
+        iconPublicId: form.iconPublicId ?? undefined,
       })
     },
     onSuccess: () => {
@@ -118,6 +128,7 @@ export default function CategoriesPage() {
       name: c.name,
       displayOrder: String(c.displayOrder),
       iconUrl: c.iconUrl ?? "",
+      iconPublicId: c.iconPublicId ?? null,
       departmentId: c.departmentId,
     })
     setOpen(true)
@@ -213,20 +224,19 @@ export default function CategoriesPage() {
                   className="tabular-nums"
                 />
               </div>
-              <div>
-                <Label htmlFor="icon" className="mb-2 block">
-                  Icon URL (optional)
-                </Label>
-                <Input
-                  id="icon"
-                  value={form.iconUrl}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, iconUrl: e.target.value }))
-                  }
-                  placeholder="https://"
-                  maxLength={500}
-                />
-              </div>
+              <ImageUpload
+                label="Icon (optional)"
+                aspect="square"
+                value={form.iconUrl || null}
+                onUpload={(file) => uploadToCloudinary(api, "category", file)}
+                onChange={(result) =>
+                  setForm((p) => ({
+                    ...p,
+                    iconUrl: result?.url ?? "",
+                    iconPublicId: result?.publicId ?? null,
+                  }))
+                }
+              />
               <DialogFooter>
                 <Button
                   type="button"
