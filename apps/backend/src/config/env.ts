@@ -50,6 +50,19 @@ const EnvSchema = z
         message: "Production BETTER_AUTH_SECRET must be at least 48 chars",
       })
     }
+    // The Socket.IO CORS allowlist (and the REST one) reuse CORS_ALLOWED_ORIGINS.
+    // The localhost default is fine for dev but must never silently ship to
+    // prod, where the socket layer would degrade to a localhost-only allowlist.
+    if (
+      env.NODE_ENV === "production" &&
+      (process.env.CORS_ALLOWED_ORIGINS ?? "").trim() === ""
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CORS_ALLOWED_ORIGINS"],
+        message: "CORS_ALLOWED_ORIGINS must be set explicitly in production",
+      })
+    }
   })
 
 const parsed = EnvSchema.safeParse(process.env)

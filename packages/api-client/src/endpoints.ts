@@ -601,6 +601,14 @@ export function buildApi(http: AxiosInstance) {
         ),
     },
 
+    realtime: {
+      // Phase 9 — mint a one-time Socket.IO handshake ticket. Reached
+      // same-origin via the Next rewrite so the session cookie authenticates
+      // it; the returned ticket is what the cross-origin socket presents.
+      ticket: () =>
+        unwrap<{ ticket: string; ttlMs: number }>(http.post("/v1/realtime/ticket")),
+    },
+
     products: {
       // owner products: list returns flat; mutations return { product }
       list: (q: OwnerProductsQuery = {}) =>
