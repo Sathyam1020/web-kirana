@@ -1,16 +1,27 @@
 "use client"
 
-import type { OrderStatus } from "@workspace/api-client"
+import type { OrderStatus, OrderView } from "@workspace/api-client"
 import { useApi } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import { ErrorState } from "@workspace/ui/components/error-state"
+import { Input } from "@workspace/ui/components/input"
+import { Label } from "@workspace/ui/components/label"
 import { SafeImage } from "@workspace/ui/components/safe-image"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, MapPin, Phone, ShoppingBag } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeft, Loader2, MapPin, Phone, ShoppingBag } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { formatPriceFromPaise } from "@/lib/format"
+import { useState } from "react"
+import { toast } from "sonner"
+import { describeApiError, formatPriceFromPaise } from "@/lib/format"
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PLACED: "New order",
@@ -24,13 +35,60 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 export default function OwnerOrderDetailPage() {
   const params = useParams<{ id: string }>()
   const api = useApi()
+  const queryClient = useQueryClient()
   const orderId = params.id
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState("")
 
   const order = useQuery({
     queryKey: ["owner-order", orderId],
     queryFn: () => api.stores.order(orderId),
     enabled: typeof orderId === "string" && orderId.length > 0,
   })
+
+  function applyUpdate(updated: OrderView) {
+    queryClient.setQueryData(["owner-order", orderId], updated)
+    void queryClient.invalidateQueries({ queryKey: ["owner-orders"] })
+  }
+  const onErr = (err: unknown) => toast.error(describeApiError(err))
+
+  const acceptM = useMutation({
+    mutationFn: () => api.stores.acceptOrder(orderId),
+    onSuccess: (o) => {
+      applyUpdate(o)
+      toast.success("Order accepted")
+    },
+    onError: onErr,
+  })
+  const rejectM = useMutation({
+    mutationFn: () => api.stores.rejectOrder(orderId, rejectReason.trim()),
+    onSuccess: (o) => {
+      applyUpdate(o)
+      setRejectOpen(false)
+      setRejectReason("")
+      toast.success("Order rejected")
+    },
+    onError: onErr,
+  })
+  const ofdM = useMutation({
+    mutationFn: () => api.stores.markOutForDelivery(orderId),
+    onSuccess: (o) => {
+      applyUpdate(o)
+      toast.success("Marked out for delivery")
+    },
+    onError: onErr,
+  })
+  const deliverM = useMutation({
+    mutationFn: () => api.stores.markDelivered(orderId),
+    onSuccess: (o) => {
+      applyUpdate(o)
+      toast.success("Marked delivered")
+    },
+    onError: onErr,
+  })
+
+  const busy = acceptM.isPending || rejectM.isPending || ofdM.isPending || deliverM.isPending
+  const status = order.data?.status
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
@@ -68,6 +126,44 @@ export default function OwnerOrderDetailPage() {
               {new Date(order.data.placedAt).toLocaleString()}
             </p>
           </div>
+
+          {/* Contextual lifecycle actions */}
+          {status === "PLACED" && (
+            <div className="flex gap-2">
+              <Button className="flex-1" disabled={busy} onClick={() => acceptM.mutate()}>
+                {acceptM.isPending && <Loader2 className="size-4 animate-spin" />}
+                Accept
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                disabled={busy}
+                onClick={() => setRejectOpen(true)}
+              >
+                Reject
+              </Button>
+            </div>
+          )}
+          {status === "ACCEPTED" && (
+            <Button className="w-full" disabled={busy} onClick={() => ofdM.mutate()}>
+              {ofdM.isPending && <Loader2 className="size-4 animate-spin" />}
+              Out for delivery
+            </Button>
+          )}
+          {status === "OUT_FOR_DELIVERY" && (
+            <Button className="w-full" disabled={busy} onClick={() => deliverM.mutate()}>
+              {deliverM.isPending && <Loader2 className="size-4 animate-spin" />}
+              Mark delivered
+            </Button>
+          )}
+          {order.data.status === "REJECTED" && order.data.rejectionReason && (
+            <p className="text-sm text-destructive">Rejected: {order.data.rejectionReason}</p>
+          )}
+          {order.data.status === "CANCELLED" && (
+            <p className="text-sm text-muted-foreground">
+              Cancelled by customer{order.data.cancellationReason ? `: ${order.data.cancellationReason}` : ""}
+            </p>
+          )}
 
           {/* Customer + delivery (fulfilment details) */}
           <div className="rounded-[var(--radius-md)] border border-border p-4 space-y-2">
@@ -135,6 +231,39 @@ export default function OwnerOrderDetailPage() {
           )}
         </>
       )}
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject this order?</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label htmlFor="reject-reason" className="mb-2 block">
+              Reason (the customer will see this)
+            </Label>
+            <Input
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. Out of stock"
+              maxLength={300}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRejectOpen(false)}>
+              Keep order
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={rejectReason.trim().length === 0 || rejectM.isPending}
+              onClick={() => rejectM.mutate()}
+            >
+              {rejectM.isPending && <Loader2 className="size-4 animate-spin" />}
+              Reject order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

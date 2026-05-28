@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, Package } from "lucide-react"
 import Link from "next/link"
 import { formatPriceFromPaise } from "@/lib/format"
+import { useSmartBack } from "@/lib/use-smart-back"
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PLACED: "Placed",
@@ -22,19 +23,18 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 
 export default function OrdersPage() {
   const api = useApi()
+  const goBack = useSmartBack("/account")
   const orders = useQuery({
     queryKey: ["orders"],
     queryFn: () => api.orders.list(),
   })
 
   return (
-    <div className="min-h-svh bg-background pb-12">
+    <div className="min-h-svh bg-background pb-28">
       <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-border/40 flex items-center gap-2 px-4 sm:px-6 py-3">
-        <Link href="/account" aria-label="Back">
-          <Button variant="secondary" size="icon">
-            <ArrowLeft className="size-4" />
-          </Button>
-        </Link>
+        <Button variant="secondary" size="icon" onClick={goBack} aria-label="Back">
+          <ArrowLeft className="size-4" />
+        </Button>
         <h1 className="text-lg font-semibold">Your orders</h1>
       </header>
 

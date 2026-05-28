@@ -6,14 +6,12 @@ import { EmptyState } from "@workspace/ui/components/empty-state"
 import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { ArrowLeft, Loader2, Package, ShoppingCart } from "lucide-react"
+import { ArrowLeft, Loader2, Package } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useState } from "react"
 import { ProductCard } from "@/components/product-card"
 import { SubcategoryRail } from "@/components/subcategory-rail"
-import { useCart } from "@/lib/cart"
-import { formatPriceFromPaise } from "@/lib/format"
 
 const PRODUCTS_PER_PAGE = 24
 
@@ -22,8 +20,6 @@ export default function CategoryPage() {
   const storeId = params.id
   const categoryId = params.categoryId
   const api = useApi()
-  const cart = useCart()
-  const cartCount = cart.totalItems()
 
   const enabled =
     typeof storeId === "string" &&
@@ -96,7 +92,7 @@ export default function CategoryPage() {
         )}
 
         {/* Right pane — products (page scrolls) */}
-        <main className="flex-1 min-w-0 p-3 sm:p-4 lg:p-6">
+        <main className="flex-1 min-w-0 p-3 sm:p-4 lg:p-6 pb-32">
           {products.isError && (
             <ErrorState
               title="Couldn't load products"
@@ -160,19 +156,6 @@ export default function CategoryPage() {
         </main>
       </div>
 
-      {cartCount > 0 && (
-        <Link
-          href="/cart"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 inline-flex items-center gap-2 h-14 px-5 sm:px-6 rounded-full bg-primary text-primary-foreground shadow-lg font-medium hover:bg-primary-active transition-colors max-w-[calc(100vw-2rem)] whitespace-nowrap"
-        >
-          <ShoppingCart className="size-4 shrink-0" />
-          <span className="tabular-nums">
-            {cartCount} item{cartCount === 1 ? "" : "s"}
-          </span>
-          <span aria-hidden>·</span>
-          <span className="tabular-nums">{formatPriceFromPaise(cart.subtotalPaise())}</span>
-        </Link>
-      )}
     </div>
   )
 }

@@ -30,7 +30,7 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="min-h-svh bg-background">
+    <div className="min-h-svh bg-background pb-28">
       <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-border/40 flex items-center justify-between px-4 sm:px-6 py-3">
         <Link href="/stores" aria-label="Back">
           <Button variant="secondary" size="icon">

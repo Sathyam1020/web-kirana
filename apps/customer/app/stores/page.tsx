@@ -8,15 +8,13 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 import { ThemeToggle } from "@workspace/ui/components/theme-toggle"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
-import { Search, ShoppingBag, ShoppingCart, Store, User } from "lucide-react"
+import { Search, ShoppingBag, Store, User } from "lucide-react"
 import Link from "next/link"
 import { useEffect } from "react"
 import { BrandMark } from "@/components/brand-mark"
 import { LocationPill } from "@/components/location-pill"
 import { StoreCard } from "@/components/store-card"
-import { useCart } from "@/lib/cart"
 import { useUserLocation } from "@/lib/location"
-import { formatPriceFromPaise } from "@/lib/format"
 
 export default function StoresPage() {
   const api = useApi()
@@ -25,8 +23,6 @@ export default function StoresPage() {
   // matches the eventual UI and there's no Sign in → Account flicker.
   const isAuthed = useIsAuthenticated()
   const user = useAuthStore((s) => s.user)
-  const cartItems = useCart((s) => s.totalItems())
-  const cartSubtotal = useCart((s) => s.subtotalPaise())
   const { location, status: locStatus, request: requestLocation } = useUserLocation()
 
   useEffect(() => {
@@ -172,28 +168,6 @@ export default function StoresPage() {
         )}
       </main>
 
-      {cartItems > 0 && (
-        <motion.div
-          initial={{ y: 80, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 80, opacity: 0 }}
-          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed bottom-6 inset-x-0 z-40 flex justify-center px-4"
-        >
-          <Link
-            href="/cart"
-            className="inline-flex items-center gap-2 h-14 px-5 sm:px-6 rounded-full bg-primary text-primary-foreground shadow-lg font-medium hover:bg-primary-active transition-colors max-w-[calc(100vw-2rem)]"
-          >
-            <ShoppingCart className="size-4 shrink-0" />
-            <span className="tabular-nums">{cartItems}</span>
-            <span aria-hidden>·</span>
-            <span className="tabular-nums">{formatPriceFromPaise(cartSubtotal)}</span>
-            <span className="text-primary-foreground/70 text-sm truncate">
-              View cart
-            </span>
-          </Link>
-        </motion.div>
-      )}
     </div>
   )
 }

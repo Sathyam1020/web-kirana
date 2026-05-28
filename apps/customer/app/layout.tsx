@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import Script from "next/script"
 
 import "@workspace/ui/globals.css"
+import { CustomerBottomBar } from "@/components/customer-bottom-bar"
 import { Providers } from "@/components/providers"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import { readAuthCookieHint } from "@/lib/server-auth"
@@ -55,7 +56,10 @@ export default async function RootLayout({
         <Script id="pwa-install-capture" strategy="beforeInteractive">
           {PWA_INSTALL_CAPTURE}
         </Script>
-        <Providers ssrAuthed={ssrAuthed}>{children}</Providers>
+        <Providers ssrAuthed={ssrAuthed}>
+          {children}
+          <CustomerBottomBar />
+        </Providers>
         <ServiceWorkerRegister />
       </body>
     </html>
