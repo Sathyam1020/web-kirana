@@ -60,7 +60,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 8     | Order lifecycle (owner state machine + customer cancel + tracker)  | ✅ done        | `6fa6549` |
 | 8.5   | Staff (was "Riders") — self-signup, apply-to-store, owner approval | ⏳ pending     |           |
 | 8.6   | Staff assignment to deliveries + staff app (after lifecycle)       | ⏳ pending     |           |
-| 9     | Socket.IO real-time (rooms, handshake auth)                        | ⏳ pending     |           |
+| 9     | Socket.IO real-time (ticket handshake + order event rooms)         | ✅ done        | `c61006d` |
 | 10    | Notifications — WhatsApp Cloud API + web-push + webhook            | ⏳ pending     |           |
 | 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
 | 12    | Cloudinary signed uploads                                          | ⏳ pending     |           |
@@ -228,6 +228,32 @@ prior 20 rows via `prisma.address.createMany` (single Neon round-trip)
 instead of 20 sequential POSTs — Neon RTT × 20 was overrunning the test
 budget. The cap check in the service doesn't depend on how the prior
 rows got there.
+
+---
+
+## Phase 9 — Socket.IO real-time (notes for future sessions)
+
+Full design + rationale in **PHASE9.md**. The essentials:
+
+- Socket.IO attaches to the existing http server in `src/server.ts`
+  (`initRealtime(server)`); `io.close()` is in graceful shutdown.
+- **Handshake auth is a one-time ticket, not the cookie.** The session cookie
+  is host-scoped/first-party on the app origin (reached via the Next `/v1`
+  rewrite); a socket connects DIRECTLY to `:4000` cross-origin, where that
+  cookie is never sent — and Next rewrites don't proxy WS upgrades. So the
+  client calls cookie-authed `POST /v1/realtime/ticket` → 60s single-use ticket
+  → presents it in the handshake `auth`. `src/realtime/tickets.ts` (in-process
+  Map; move to Redis before horizontal scale).
+- Rooms: `user:<userId>` (customer), `store:<storeId>` (owner). Resolved
+  server-side in the ticket endpoint from session identity — never client
+  input. The bus→socket bridge (`src/realtime/index.ts`) emits `order.placed`
+  + `order.status_changed` to those rooms; the orders service is unchanged.
+- **New env var:** `NEXT_PUBLIC_WS_URL` (FE → API origin, default
+  `http://localhost:4000`). Must be in `CORS_ALLOWED_ORIGINS`. `env.ts` now
+  hard-requires `CORS_ALLOWED_ORIGINS` to be set in production.
+- FE: `useRealtime` in `packages/auth` + a `RealtimeBridge` per app that
+  invalidates order query keys on events. Polling dropped to a 60s fallback.
+- Tests: `tests/realtime.test.ts` (6) — live server + real socket clients.
 
 ---
 
