@@ -1,8 +1,8 @@
 import { z } from "zod"
 
-/** Owner can sign uploads for their own store's product / banner images. */
+/** Owner can sign uploads for their own store's product / cover / banner images. */
 export const ownerSignatureBodySchema = z.object({
-  scope: z.enum(["product", "store"]),
+  scope: z.enum(["product", "store", "banner"]),
 })
 export type OwnerSignatureBody = z.infer<typeof ownerSignatureBodySchema>
 

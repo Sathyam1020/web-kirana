@@ -5,6 +5,7 @@ import { events } from "../../lib/events.js"
 import { ConflictError, NotFoundError, StoreNotCreatedError } from "../../lib/errors.js"
 import { normalizePhone } from "../../lib/phone.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
+import { getActiveBanner } from "../banners/banners.service.js"
 import { searchProducts } from "../search/search.service.js"
 import type { CreateStoreBody, UpdateStoreBody } from "./stores.schemas.js"
 
@@ -516,6 +517,8 @@ export interface StoreDetailResult {
    *  categories this store carries; the FE has loaded first
    *  INITIAL_CATEGORY_SECTIONS already. */
   totalCategoryCount: number
+  // Phase 6.8 — active promotional banner, or null.
+  activeBanner: { id: string; name: string; imageUrl: string } | null
 }
 
 /**
@@ -622,7 +625,7 @@ async function loadProductsForStoreCategory(
 export async function getStorePublic(storeId: string): Promise<StoreDetailResult> {
   // Parallelize the three eager reads. The category-section materialisation
   // happens after we know which top-N categories to surface (sequential).
-  const [store, featuredRows, categoryStats] = await Promise.all([
+  const [store, featuredRows, categoryStats, activeBanner] = await Promise.all([
     prisma.store.findFirst({
       where: { id: storeId, isActive: true },
       select: PUBLIC_STORE_SELECT,
@@ -643,6 +646,7 @@ export async function getStorePublic(storeId: string): Promise<StoreDetailResult
       take: MAX_FEATURED_PRODUCTS,
     }),
     computeStoreCategoryStats(storeId),
+    getActiveBanner(storeId),
   ])
   if (store === null) throw new NotFoundError("Store not found")
 
@@ -716,6 +720,7 @@ export async function getStorePublic(storeId: string): Promise<StoreDetailResult
     featuredProducts: featuredRows.map(toPublicProductView),
     categorySections,
     totalCategoryCount: categoryStats.length,
+    activeBanner,
   }
 }
 

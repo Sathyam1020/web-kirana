@@ -10,7 +10,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import request from "supertest"
 import { buildApp } from "../src/app.js"
-import { prisma } from "../src/db/prisma.js"
 import {
   type AuthedCaller,
   cleanupRun,
@@ -22,29 +21,15 @@ import {
 const app = buildApp()
 const api = () => request(app)
 
-const baseStoreBody = {
-  name: "Uploads Test Store",
-  phone: "+919999222222",
-  latitude: 12.9116,
-  longitude: 77.6473,
-  addressLine: "addr",
-  city: "Bengaluru",
-  pincode: "560102",
-}
-
 let owner: AuthedCaller
-let ownerStoreId: string
 let customer: AuthedCaller
 let admin: AuthedCaller
 
 beforeAll(async () => {
+  // Deliberately do NOT create a store — the signature must work during
+  // onboarding (before the store exists). The folder is scoped to the owner's
+  // user id, not a store id.
   owner = await signupApprovedOwner(app, "Uploads Owner")
-  await api().post("/v1/stores/me").set("Cookie", owner.cookieHeader).send(baseStoreBody)
-  const store = await prisma.store.findUniqueOrThrow({
-    where: { ownerId: owner.user.id },
-    select: { id: true },
-  })
-  ownerStoreId = store.id
   customer = await signupCustomer(app, "Uploads Customer")
   admin = await loginSeededAdmin(app)
 })
@@ -66,17 +51,18 @@ describe("POST /v1/uploads/signature (owner)", () => {
     expect(typeof d.timestamp).toBe("number")
     // SHA-1 hex digest.
     expect(d.signature).toMatch(/^[a-f0-9]{40}$/)
-    // Folder is derived server-side from the caller's OWN store — no IDOR.
-    expect(d.folder).toBe(`products/${ownerStoreId}`)
+    // Folder is derived server-side from the caller's user id — no IDOR, and
+    // no store required (works during onboarding).
+    expect(d.folder).toBe(`products/${owner.user.id}`)
   })
 
-  it("scopes the store folder to the caller's own store", async () => {
+  it("scopes the store folder to the caller (no store needed during onboarding)", async () => {
     const res = await api()
       .post("/v1/uploads/signature")
       .set("Cookie", owner.cookieHeader)
       .send({ scope: "store" })
     expect(res.status).toBe(200)
-    expect(res.body.data.folder).toBe(`stores/${ownerStoreId}`)
+    expect(res.body.data.folder).toBe(`stores/${owner.user.id}`)
   })
 
   it("rejects an invalid scope with 400", async () => {

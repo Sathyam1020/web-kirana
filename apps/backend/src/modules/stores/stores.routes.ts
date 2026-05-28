@@ -2,6 +2,7 @@ import { Router } from "express"
 import { Role } from "../../generated/prisma/enums.js"
 import { requireAuth, requireRole } from "../../middleware/auth.js"
 import { validate } from "../../middleware/validate.js"
+import { bannersOwnerRouter } from "../banners/banners.routes.js"
 import { couponsOwnerRouter } from "../coupons/coupons.routes.js"
 import { productsRouter } from "../products/products.routes.js"
 import * as subcontroller from "../subcategories/subcategories.controller.js"
@@ -115,3 +116,6 @@ storesRouter.use("/me/subcategories", subcategoriesOwnerRouter)
 // Store-scoped coupons (owner-created, STORE scope only). The owner router
 // self-gates with requireAuth + requireRole(OWNER) + requireOwnStore.
 storesRouter.use("/me/coupons", couponsOwnerRouter)
+
+// Phase 6.8 — promotional banners (owner-managed, one active per store).
+storesRouter.use("/me/banners", bannersOwnerRouter)

@@ -1,16 +1,18 @@
 import { signUpload, type UploadSignature } from "../../lib/cloudinary.js"
 
 /**
- * Owner upload signature. The folder is derived from the caller's own store
- * id (server-side), never from the request body — so owner A can never obtain
- * a signature targeting owner B's folder.
+ * Owner upload signature. The folder is derived from the caller's user id
+ * (server-side), never from the request body — so owner A can never obtain a
+ * signature targeting owner B's folder. Using the user id (not the store id)
+ * lets the store image be uploaded during onboarding, before the store exists.
  */
 export function signOwnerUpload(
-  storeId: string,
-  scope: "product" | "store",
+  ownerId: string,
+  scope: "product" | "store" | "banner",
 ): UploadSignature {
-  const folder = scope === "product" ? `products/${storeId}` : `stores/${storeId}`
-  return signUpload(folder)
+  const prefix =
+    scope === "product" ? "products" : scope === "banner" ? "banners" : "stores"
+  return signUpload(`${prefix}/${ownerId}`)
 }
 
 /** Admin upload signature for global category / department icons. */

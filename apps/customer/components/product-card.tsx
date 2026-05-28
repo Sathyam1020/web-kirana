@@ -38,8 +38,11 @@ export function ProductCard({
       <p className="text-xs text-muted-foreground mt-0.5">
         {unitLabel(product.unit)}
       </p>
-      <div className="flex items-center justify-between mt-2">
-        <span className="tabular-nums font-semibold text-base">
+      {/* Price on its own line + a full-width Add / stepper below. Stacking
+          (vs side-by-side) keeps the footer clean at every card width — the
+          compact horizontal-scroll cards and the wider grid cards alike. */}
+      <div className="mt-2 space-y-2">
+        <span className="block tabular-nums font-semibold text-base">
           {formatPriceFromPaise(product.pricePaise)}
         </span>
         {product.isAvailable ? (
@@ -47,15 +50,15 @@ export function ProductCard({
             {inCart > 0 ? (
               <motion.div
                 key="stepper"
-                initial={{ opacity: 0, scale: 0.92 }}
+                initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
+                exit={{ opacity: 0, scale: 0.96 }}
                 transition={{ duration: 0.12 }}
-                className="flex items-center gap-1 rounded-full bg-primary text-primary-foreground shadow-sm"
+                className="flex items-center justify-between rounded-full bg-primary text-primary-foreground shadow-sm h-9 w-full"
               >
                 <button
                   onClick={() => cart.dec(product.id)}
-                  className="size-8 inline-flex items-center justify-center text-sm font-semibold transition-transform active:scale-90"
+                  className="size-9 inline-flex items-center justify-center text-base font-semibold transition-transform active:scale-90"
                   aria-label="Remove one"
                 >
                   −
@@ -72,7 +75,7 @@ export function ProductCard({
                 </motion.span>
                 <button
                   onClick={() => cart.inc(product, storeId)}
-                  className="size-8 inline-flex items-center justify-center text-sm font-semibold transition-transform active:scale-90"
+                  className="size-9 inline-flex items-center justify-center text-base font-semibold transition-transform active:scale-90"
                   aria-label="Add one"
                 >
                   +
@@ -81,12 +84,16 @@ export function ProductCard({
             ) : (
               <motion.div
                 key="add"
-                initial={{ opacity: 0, scale: 0.92 }}
+                initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
+                exit={{ opacity: 0, scale: 0.96 }}
                 transition={{ duration: 0.12 }}
               >
-                <Button size="sm" onClick={() => cart.inc(product, storeId)}>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => cart.inc(product, storeId)}
+                >
                   <Plus className="size-3.5" />
                   Add
                 </Button>
@@ -94,7 +101,7 @@ export function ProductCard({
             )}
           </AnimatePresence>
         ) : (
-          <span className="text-xs text-muted-foreground">Out of stock</span>
+          <span className="block text-xs text-muted-foreground">Out of stock</span>
         )}
       </div>
     </motion.div>

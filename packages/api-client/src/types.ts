@@ -34,6 +34,8 @@ export type {
   StoreOwnerView,
   StorePublicView,
   StoreProductsResult,
+  StoreActiveBanner,
+  StoreBanner,
   SubcategoryOwnerView,
   SubcategoryPublicView,
   SuccessEnvelope,

@@ -24,7 +24,7 @@ export function CategoryTile({
         href={`/stores/${storeId}/categories/${category.id}`}
         className="flex flex-col items-center gap-2 group"
       >
-        <div className="aspect-square w-full rounded-[var(--radius-lg)] bg-surface-soft overflow-hidden flex items-center justify-center group-hover:shadow-md transition-shadow">
+        <div className="aspect-square w-full rounded-[var(--radius-lg)] bg-surface-soft border border-border overflow-hidden flex items-center justify-center group-hover:shadow-md transition-shadow">
           {category.iconUrl ? (
             <SafeImage
               src={category.iconUrl}

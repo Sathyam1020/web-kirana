@@ -299,9 +299,29 @@ model Store {
   orders        Order[]
   coupons       Coupon[]
   subcategories Subcategory[]
+  banners       StoreBanner[]
 
   @@index([isActive, isOpen])
   @@index([city])
+}
+
+// Phase 6.8 — promotional banners. The owner uploads several named banners
+// and flips exactly one to isActive; the customer store page renders the
+// active one as a strip above the department grid. "One active per store" is
+// enforced at the service layer (activate is a transaction that clears the
+// others). Distinct from Store.imageUrl, which is the store cover/hero.
+model StoreBanner {
+  id            String  @id @default(cuid())
+  storeId       String
+  store         Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name          String
+  imageUrl      String
+  imagePublicId String?
+  isActive      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([storeId, isActive])
 }
 
 model Product {

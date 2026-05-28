@@ -17,6 +17,7 @@ import type {
   ProductOwnerView,
   SearchResult,
   SessionResult,
+  StoreBanner,
   StoreCategorySectionsResult,
   StoreDetailResult,
   StoreOwnerView,
@@ -119,6 +120,14 @@ export type UpdateProductBody = Partial<{
 
 export interface MoveProductBody {
   subcategoryId: string
+}
+
+// ---------- Store banners (owner) ---------------------------------------
+
+export interface CreateBannerBody {
+  name: string
+  imageUrl: string
+  imagePublicId?: string
 }
 
 export interface OwnerProductsQuery {
@@ -394,7 +403,7 @@ export function buildApi(http: AxiosInstance) {
       // Cloudinary signed-upload signatures (Phase 6.7). The folder is derived
       // server-side (owner → own store; admin → global icons), so callers only
       // pass the scope. Use `uploadToCloudinary` to run the full flow.
-      ownerSignature: (scope: "product" | "store") =>
+      ownerSignature: (scope: "product" | "store" | "banner") =>
         unwrap<UploadSignature>(http.post("/v1/uploads/signature", { scope })),
       adminSignature: (scope: "category" | "department") =>
         unwrap<UploadSignature>(http.post("/v1/admin/uploads/signature", { scope })),
@@ -482,6 +491,26 @@ export function buildApi(http: AxiosInstance) {
         pluck<StoreOwnerView, "store">(
           http.patch("/v1/stores/me/open", { isOpen }),
           "store",
+        ),
+
+      // Phase 6.8 — owner promotional banners.
+      listBanners: () =>
+        pluck<StoreBanner[], "banners">(
+          http.get("/v1/stores/me/banners"),
+          "banners",
+        ),
+      createBanner: (body: CreateBannerBody) =>
+        pluck<StoreBanner, "banner">(
+          http.post("/v1/stores/me/banners", body),
+          "banner",
+        ),
+      removeBanner: (id: string) =>
+        http.delete(`/v1/stores/me/banners/${id}`).then(() => undefined),
+      // bannerId=null hides the active banner.
+      setActiveBanner: (bannerId: string | null) =>
+        pluck<StoreBanner[], "banners">(
+          http.patch("/v1/stores/me/banners/active", { bannerId }),
+          "banners",
         ),
     },
 
@@ -654,7 +683,7 @@ export async function uploadToCloudinary(
   file: File,
 ): Promise<UploadedImage> {
   const signature =
-    scope === "product" || scope === "store"
+    scope === "product" || scope === "store" || scope === "banner"
       ? await api.uploads.ownerSignature(scope)
       : await api.uploads.adminSignature(scope)
 

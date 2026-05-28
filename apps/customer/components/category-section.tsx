@@ -38,9 +38,14 @@ export function CategorySection({
           </Link>
         )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+      {/* Horizontal scroll row so each category stays one swipe tall instead
+          of pushing the page down. Edge-bleed (-mx + px) lets cards scroll to
+          the screen edge on mobile. Fixed narrow widths keep the cards small. */}
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {section.products.map((p) => (
-          <ProductCard key={p.id} product={p} storeId={storeId} />
+          <div key={p.id} className="w-36 sm:w-40 shrink-0 snap-start">
+            <ProductCard product={p} storeId={storeId} />
+          </div>
         ))}
       </div>
     </section>

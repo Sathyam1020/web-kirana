@@ -11,6 +11,7 @@ import {
   Home,
   LogOut,
   Package,
+  Settings,
   Ticket,
   Star,
   Loader2,
@@ -109,6 +110,11 @@ export function OwnerShell({ store, children }: Props) {
               )}
             </div>
             <ThemeToggle />
+            <Link href="/settings" aria-label="Store settings">
+              <Button variant="ghost" size="icon">
+                <Settings className="size-4" />
+              </Button>
+            </Link>
             <Button
               variant="ghost"
               size="icon"

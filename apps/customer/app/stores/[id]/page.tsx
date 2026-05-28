@@ -7,7 +7,7 @@ import { ErrorState } from "@workspace/ui/components/error-state"
 import { SafeImage } from "@workspace/ui/components/safe-image"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { ArrowLeft, Loader2, MapPin, Package, ShoppingCart, Store as StoreIcon } from "lucide-react"
+import { ArrowLeft, Loader2, MapPin, Package, ShoppingCart } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useState } from "react"
@@ -58,6 +58,7 @@ export default function StoreDetailPage() {
   const featured = detail.data?.featuredProducts ?? []
   const initialSections = detail.data?.categorySections ?? []
   const departments = detail.data?.departments ?? []
+  const activeBanner = detail.data?.activeBanner ?? null
 
   return (
     <div className="min-h-svh bg-background pb-32">
@@ -83,16 +84,16 @@ export default function StoreDetailPage() {
         </div>
       </header>
 
-      {/* Banner */}
-      <div className="bg-muted">
-        <div className="max-w-6xl mx-auto aspect-[16/9] sm:aspect-[21/9] lg:aspect-[3/1] relative overflow-hidden">
-          <SafeImage
-            src={detail.data?.store.imageUrl}
-            alt={detail.data?.store.name ?? "Store"}
-            fallback={<StoreIcon className="size-16" />}
-          />
+      {/* Top image is the owner's ACTIVE promotional banner — not the store
+          cover (the cover identifies the store in the nearby list). Only
+          rendered when the owner has set a banner. */}
+      {activeBanner && (
+        <div className="bg-muted">
+          <div className="max-w-6xl mx-auto aspect-[16/9] sm:aspect-[21/9] lg:aspect-[3/1] relative overflow-hidden">
+            <SafeImage src={activeBanner.imageUrl} alt={activeBanner.name} />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
         {detail.isError && (
@@ -136,13 +137,16 @@ export default function StoreDetailPage() {
             {/* Department → category tiles */}
             <DepartmentGrid storeId={storeId} departments={departments} />
 
-            {/* Featured */}
+            {/* Featured — same horizontal-scroll layout + card size as the
+                category sections so the two read as one consistent style. */}
             {featured.length > 0 && (
               <section>
                 <h2 className="text-base font-semibold mb-3">Featured</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 snap-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {featured.map((p) => (
-                    <ProductCard key={p.id} product={p} storeId={storeId} />
+                    <div key={p.id} className="w-36 sm:w-40 shrink-0 snap-start">
+                      <ProductCard product={p} storeId={storeId} />
+                    </div>
                   ))}
                 </div>
               </section>

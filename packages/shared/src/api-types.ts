@@ -245,12 +245,31 @@ export interface CategorySection {
   hasMore: boolean
 }
 
+/** Active promotional banner shown atop the customer store page (Phase 6.8). */
+export interface StoreActiveBanner {
+  id: string
+  name: string
+  imageUrl: string
+}
+
+/** Owner-managed promotional banner (Phase 6.8). */
+export interface StoreBanner {
+  id: string
+  name: string
+  imageUrl: string
+  imagePublicId: string | null
+  isActive: boolean
+  createdAt: string
+}
+
 export interface StoreDetailResult {
   store: StorePublicView
   departments: StoreDetailDepartmentView[]
   featuredProducts: ProductPublicView[]
   categorySections: CategorySection[]
   totalCategoryCount: number
+  // Phase 6.8 — null when the store has no active banner.
+  activeBanner: StoreActiveBanner | null
 }
 
 export interface StoreCategorySectionsResult {
@@ -277,7 +296,7 @@ export interface OwnerProductsListResult {
 // --- Uploads (Phase 6.7: Cloudinary signed uploads) ---------------------
 
 /** What an entity image can belong to. Owner scopes vs admin (icon) scopes. */
-export type UploadScope = "product" | "store" | "category" | "department"
+export type UploadScope = "product" | "store" | "banner" | "category" | "department"
 
 /**
  * Signed payload the backend returns. The browser POSTs these fields (plus

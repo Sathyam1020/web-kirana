@@ -123,6 +123,10 @@ export default function OnboardingPage() {
       toast.error("Pin a location to continue")
       return
     }
+    if (form.imageUrl.trim() === "") {
+      toast.error("Add a store cover image")
+      return
+    }
     create.mutate()
   }
 
@@ -268,7 +272,7 @@ export default function OnboardingPage() {
             </div>
 
             <ImageUpload
-              label="Store image (optional)"
+              label="Store cover image (required)"
               aspect="wide"
               value={form.imageUrl || null}
               onUpload={(file) => uploadToCloudinary(api, "store", file)}

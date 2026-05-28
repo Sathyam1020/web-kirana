@@ -23,7 +23,7 @@ export function DepartmentGrid({
       {departments.map((dept) => (
         <section key={dept.id}>
           <h2 className="text-base font-semibold mb-3">{dept.name}</h2>
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 sm:gap-4">
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3 sm:gap-4">
             {dept.categories.map((cat) => (
               <CategoryTile key={cat.id} storeId={storeId} category={cat} />
             ))}

@@ -5,12 +5,11 @@ import * as service from "./uploads.service.js"
 import type { AdminSignatureBody, OwnerSignatureBody } from "./uploads.schemas.js"
 
 export async function ownerSignature(req: Request, res: Response): Promise<void> {
-  // requireOwnStore runs before this and sets req.ownStore.
-  if (req.ownStore === undefined) {
-    throw new UnauthorizedError("requireOwnStore must run before ownerSignature")
+  if (req.user === undefined) {
+    throw new UnauthorizedError("requireAuth must run before ownerSignature")
   }
   const body = req.body as OwnerSignatureBody
-  const signature = service.signOwnerUpload(req.ownStore.id, body.scope)
+  const signature = service.signOwnerUpload(req.user.id, body.scope)
   sendData(res, signature)
 }
 
