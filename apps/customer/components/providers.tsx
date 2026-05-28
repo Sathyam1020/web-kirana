@@ -7,6 +7,7 @@ import { Toaster } from "sonner"
 import { useState } from "react"
 import { env } from "@/lib/env"
 import { CartSwitchDialog } from "@/components/cart-switch-dialog"
+import { RealtimeBridge } from "@/components/realtime-bridge"
 
 export function Providers({
   ssrAuthed,
@@ -40,6 +41,7 @@ export function Providers({
         <AuthProvider baseUrl={env.apiUrl}>
           <QueryClientProvider client={queryClient}>
             {children}
+            <RealtimeBridge />
             <CartSwitchDialog />
             <Toaster
               position="top-center"

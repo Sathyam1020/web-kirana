@@ -66,7 +66,8 @@ export function CustomerBottomBar() {
     queryKey: ["orders"],
     queryFn: () => api.orders.list(),
     enabled: showOrders,
-    refetchInterval: 20_000,
+    // Realtime push keeps this fresh; slow fallback poll for socket downtime.
+    refetchInterval: 60_000,
   })
 
   const active = showOrders

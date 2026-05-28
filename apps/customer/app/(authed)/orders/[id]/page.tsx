@@ -35,11 +35,11 @@ export default function OrderDetailPage() {
     queryKey: ["order", orderId],
     queryFn: () => api.orders.get(orderId),
     enabled: typeof orderId === "string" && orderId.length > 0,
-    // Poll while the order is still in flight so the tracker advances as the
-    // store acts; stop once it reaches a terminal state.
+    // Realtime push (Socket.IO) drives the tracker; this is the slow fallback
+    // that recovers if the socket is down. Stops once terminal.
     refetchInterval: (q) => {
       const s = q.state.data?.status
-      return s && !TERMINAL.includes(s) ? 15_000 : false
+      return s && !TERMINAL.includes(s) ? 60_000 : false
     },
   })
 

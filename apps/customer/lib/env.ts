@@ -8,4 +8,9 @@
 // API_INTERNAL_URL, also unset by default in dev → http://localhost:4000).
 export const env = {
   apiUrl: "",
+  // The Socket.IO client connects DIRECTLY to the API origin (it can't ride the
+  // /v1 rewrite — WS upgrades don't proxy reliably, and the handshake uses a
+  // ticket rather than the cookie). The API origin must be in the backend's
+  // CORS allowlist. Defaults to the dev backend; set NEXT_PUBLIC_WS_URL in prod.
+  wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:4000",
 }

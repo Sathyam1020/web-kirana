@@ -6,6 +6,7 @@ import { ThemeProvider as NextThemesProvider } from "next-themes"
 import { Toaster } from "sonner"
 import { useState } from "react"
 import { env } from "@/lib/env"
+import { RealtimeBridge } from "@/components/realtime-bridge"
 
 export function Providers({
   ssrAuthed,
@@ -39,6 +40,7 @@ export function Providers({
         <AuthProvider baseUrl={env.apiUrl}>
           <QueryClientProvider client={queryClient}>
             {children}
+            <RealtimeBridge />
             <Toaster
               position="top-center"
               richColors
