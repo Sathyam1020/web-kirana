@@ -55,7 +55,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 6.5   | Auth replacement — better-auth (cookie sessions; fixes refresh bug)| ✅ done        | `b76803d` |
 | 6.6   | Taxonomy upgrade — Department/Category/Subcategory + product re-FK | ✅ done        | `2eab966` |
 | 6.7   | Cloudinary signed uploads                                          | ✅ done        | `150f0db` |
-| 6.8   | Product-level discounts (effective price + coupon stacking)        | ✅ done        | _pending_ |
+| 6.8   | Product-level discounts (effective price + coupon stacking)        | ✅ done        | `bc4087a` |
 | 7     | Order placement — idempotency-key + re-validation + tx snapshot    | ⏳ pending     |           |
 | 7.5   | Riders — self-signup, apply-to-store, owner approval (NEW)         | ⏳ pending     |           |
 | 8     | Order lifecycle state machine + broadcast-and-first-accept + rider | ⏳ pending     |           |
