@@ -12,6 +12,12 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
 }
 
+interface InstallWindow {
+  // Stashed by the early-capture script in the app layout (runs before React
+  // hydrates) so a beforeinstallprompt that fires early isn't lost.
+  __deferredInstallPrompt?: BeforeInstallPromptEvent | null
+}
+
 interface InstallPrompt {
   /** Chromium captured a deferred prompt — a one-tap native install is available. */
   canInstall: boolean
@@ -30,6 +36,7 @@ export function useInstallPrompt(): InstallPrompt {
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    const w = window as unknown as InstallWindow
 
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
@@ -42,23 +49,32 @@ export function useInstallPrompt(): InstallPrompt {
       /iphone|ipad|ipod/.test(ua) ||
       // iPadOS 13+ reports as MacIntel but is touch-capable.
       (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1)
-    // Only Safari on iOS supports Add to Home Screen; in-app Chrome/Firefox on
-    // iOS (crios/fxios) can't install, so don't claim they can.
     setIsIOS(iosDevice && /safari/.test(ua) && !/crios|fxios/.test(ua))
 
+    // Pick up an event the early-capture script may have already stashed
+    // (it can fire before React mounts, especially on slow connections).
+    if (w.__deferredInstallPrompt) setDeferred(w.__deferredInstallPrompt)
+
+    const onReady = () => {
+      if (w.__deferredInstallPrompt) setDeferred(w.__deferredInstallPrompt)
+    }
     const onBeforeInstallPrompt = (e: Event) => {
-      // Stop Chrome's mini-infobar; we drive the prompt from our own button.
       e.preventDefault()
+      w.__deferredInstallPrompt = e as BeforeInstallPromptEvent
       setDeferred(e as BeforeInstallPromptEvent)
     }
     const onAppInstalled = () => {
+      w.__deferredInstallPrompt = null
       setIsInstalled(true)
       setDeferred(null)
     }
 
+    // Custom event dispatched by the early-capture script.
+    window.addEventListener("installpromptready", onReady)
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt)
     window.addEventListener("appinstalled", onAppInstalled)
     return () => {
+      window.removeEventListener("installpromptready", onReady)
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt)
       window.removeEventListener("appinstalled", onAppInstalled)
     }
@@ -68,6 +84,8 @@ export function useInstallPrompt(): InstallPrompt {
     if (deferred === null) return false
     await deferred.prompt()
     const choice = await deferred.userChoice
+    const w = window as unknown as InstallWindow
+    w.__deferredInstallPrompt = null
     setDeferred(null)
     return choice.outcome === "accepted"
   }, [deferred])
