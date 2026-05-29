@@ -10,6 +10,7 @@ import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import { SafeImage } from "@workspace/ui/components/safe-image"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { Switch } from "@workspace/ui/components/switch"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Image as ImageIcon, Loader2, Trash2 } from "lucide-react"
 import { useState } from "react"
@@ -42,6 +43,20 @@ export default function SettingsPage() {
     onSuccess: (next: StoreOwnerView) => {
       queryClient.setQueryData(["stores", "me"], next)
       toast.success("Store cover updated")
+    },
+    onError: (err) => toast.error(describeApiError(err)),
+  })
+
+  // --- Daily availability reset (opt-in) ---------------------------------
+  const availabilityMutation = useMutation({
+    mutationFn: (next: boolean) => api.stores.updateMine({ autoResetAvailability: next }),
+    onSuccess: (next: StoreOwnerView) => {
+      queryClient.setQueryData(["stores", "me"], next)
+      toast.success(
+        next.autoResetAvailability
+          ? "Daily availability reset on"
+          : "Daily availability reset off",
+      )
     },
     onError: (err) => toast.error(describeApiError(err)),
   })
@@ -97,6 +112,24 @@ export default function SettingsPage() {
       </div>
 
       <NotificationToggle />
+
+      {/* Daily availability reset (opt-in) */}
+      {store && (
+        <Card className="p-4 flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block font-medium">Reset stock availability daily</span>
+            <span className="block text-sm text-muted-foreground">
+              Re-enable all your products each morning so you re-check what's in stock.
+            </span>
+          </span>
+          <Switch
+            checked={store.autoResetAvailability}
+            disabled={availabilityMutation.isPending}
+            onCheckedChange={(next) => availabilityMutation.mutate(next)}
+            aria-label="Reset stock availability daily"
+          />
+        </Card>
+      )}
 
       {/* Store cover */}
       <Card className="p-5 space-y-3">
