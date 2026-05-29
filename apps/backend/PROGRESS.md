@@ -64,7 +64,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 10    | Notifications — web-push (both) + WhatsApp (owner) + webhook       | ✅ done        | `0f98218` |
 | 11    | Cron jobs — auto-cancel PLACED + WhatsApp retry + availability reset| ✅ done        | `afb8304` |
 | 12    | ~~Cloudinary signed uploads~~ — stale duplicate of 6.7 (done)      | ✅ n/a         | `150f0db` |
-| 13    | Hardening pass + apps/backend/README + full suite                  | ⏳ pending     |           |
+| 13    | Hardening — README + .env fix + full-suite pass + prod builds      | ✅ done        | `aadd3c8` |
 
 **Frontends (all three built):**
 - `apps/customer` PWA — discovery, cart, COD checkout + success celebration,
@@ -609,6 +609,13 @@ Already applied inline before the Phase 4.3 commit (no deferrals):
 - **Auth tests can shortcut admin approval** via direct DB UPDATE
   (`signupApprovedOwner` factory). The full approval flow is still tested
   in `auth.test.ts`.
+- **Full-suite (`npm run test`, ~28 min) vs Neon free tier:** every test file
+  passes in isolation, but running all ~248 sequentially in one process
+  eventually throttles the shared Neon instance — late requests stall for
+  minutes and a few tests hit their timeout (seen on `orders` multi-store,
+  `addresses` delete-other). Those are **load timeouts, not failures** — re-run
+  the file alone to confirm. Don't chase them as bugs. (Phase 13 verified
+  per-file green + clean prod builds.)
 
 ---
 
