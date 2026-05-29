@@ -6,7 +6,7 @@
  * create rows with the ZZZ-TEST- name prefix so cleanupRun() removes them.
  */
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import request from "supertest"
 import { buildApp } from "../src/app.js"
 import { prisma } from "../src/db/prisma.js"
@@ -20,6 +20,15 @@ import {
 
 const app = buildApp()
 const api = () => request(app)
+
+// Phase 6.6 made categories live under a Department — create now requires a
+// departmentId. Use the first seeded department.
+let departmentId: string
+beforeAll(async () => {
+  departmentId = (
+    await prisma.department.findFirstOrThrow({ orderBy: { displayOrder: "asc" } })
+  ).id
+})
 
 afterAll(async () => {
   await cleanupRun()
@@ -54,7 +63,7 @@ describe("POST /v1/admin/categories", () => {
     const res = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name, displayOrder: 50 })
+      .send({ name, departmentId, displayOrder: 50 })
     expect(res.status).toBe(201)
     expect(res.body.data.category).toMatchObject({ name, displayOrder: 50 })
   })
@@ -65,13 +74,13 @@ describe("POST /v1/admin/categories", () => {
     const first = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name })
+      .send({ name, departmentId })
     expect(first.status).toBe(201)
 
     const second = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name })
+      .send({ name, departmentId })
     expect(second.status).toBe(409)
     expect(second.body.error.code).toBe("CONFLICT")
   })
@@ -109,7 +118,7 @@ describe("PATCH /v1/admin/categories/:id", () => {
     const created = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name: original })
+      .send({ name: original, departmentId })
     const id = created.body.data.category.id
 
     const renamed = nextCategoryName("Renamed")
@@ -126,11 +135,11 @@ describe("PATCH /v1/admin/categories/:id", () => {
     const a = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name: nextCategoryName("A") })
+      .send({ name: nextCategoryName("A"), departmentId })
     const b = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name: nextCategoryName("B") })
+      .send({ name: nextCategoryName("B"), departmentId })
 
     const res = await api()
       .patch(`/v1/admin/categories/${b.body.data.category.id}`)
@@ -153,7 +162,7 @@ describe("PATCH /v1/admin/categories/:id", () => {
     const created = await api()
       .post("/v1/admin/categories")
       .set("Cookie", admin.cookieHeader)
-      .send({ name: nextCategoryName("Locked") })
+      .send({ name: nextCategoryName("Locked"), departmentId })
     const id = created.body.data.category.id
 
     const owner = await signupApprovedOwner(app)
