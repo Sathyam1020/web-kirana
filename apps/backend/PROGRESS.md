@@ -61,7 +61,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 8.5   | Staff (was "Riders") — self-signup, apply-to-store, owner approval | ⏳ pending     |           |
 | 8.6   | Staff assignment to deliveries + staff app (after lifecycle)       | ⏳ pending     |           |
 | 9     | Socket.IO real-time (ticket handshake + order event rooms)         | ✅ done        | `c61006d` |
-| 10    | Notifications — WhatsApp Cloud API + web-push + webhook            | ⏳ pending     |           |
+| 10    | Notifications — web-push (both) + WhatsApp (owner) + webhook       | ✅ done        | `0f98218` |
 | 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
 | 12    | Cloudinary signed uploads                                          | ⏳ pending     |           |
 | 13    | Hardening pass + apps/backend/README + full suite                  | ⏳ pending     |           |
@@ -254,6 +254,35 @@ Full design + rationale in **PHASE9.md**. The essentials:
 - FE: `useRealtime` in `packages/auth` + a `RealtimeBridge` per app that
   invalidates order query keys on events. Polling dropped to a 60s fallback.
 - Tests: `tests/realtime.test.ts` (6) — live server + real socket clients.
+
+---
+
+## Phase 10 — Notifications (notes for future sessions)
+
+Full design + the WhatsApp template specs + go-live steps in **PHASE10.md**.
+Essentials:
+
+- Another consumer of the domain event bus (like Phase 9 realtime).
+  `registerNotifications()` in `server.ts` (NOT buildApp). `src/notifications/`.
+- **Channels:** web-push for owners AND customers; WhatsApp for owners only
+  (new order + customer-cancelled). Order-confirmation is an in-app celebration,
+  not a notification.
+- Providers **no-op until configured** (Cloudinary pattern). WhatsApp writes a
+  `WhatsAppMessageLog` outbox row even when unconfigured (FAILED). web-push
+  prunes dead 410 subscriptions.
+- **Webhook** `GET/POST /v1/webhooks/whatsapp` mounts BEFORE `express.json()`
+  with `express.raw({limit:"100kb"})`; POST verifies `X-Hub-Signature-256` (raw
+  body, timing-safe, fails closed), status updates are forward-only.
+- **New env (all optional/gated):** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+  `VAPID_SUBJECT`, `WHATSAPP_PHONE_NUMBER_ID/ACCESS_TOKEN/APP_SECRET/VERIFY_TOKEN`,
+  `WHATSAPP_API_VERSION` (default v22.0); FE `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
+- FE: `useWebPush` (packages/auth) + `NotificationToggle` (customer account /
+  owner settings); `push`+`notificationclick` in both `public/sw.js`; customer
+  order-success celebration on checkout.
+- Tests: `tests/notifications.test.ts` (11) — dispatch routing via the outbox,
+  push subscribe, webhook signature verify.
+- **Deferred:** WhatsApp outbox retry worker (Phase 11 cron), inbound messages,
+  notification preferences, outbox retention.
 
 ---
 
