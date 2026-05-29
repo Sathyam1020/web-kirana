@@ -2,47 +2,21 @@
 
 import { motion } from "motion/react"
 import { useEffect } from "react"
+import { playSuccessChime } from "@/lib/sound"
 
 /**
  * Blinkit-style order-placed celebration: a full-screen green wash, a tick that
  * draws itself, and a soft synthesized chime — then it hands off to the order
- * page. Replaces a plain success toast on checkout.
+ * page. Replaces a plain success toast on checkout. The chime plays through the
+ * audio context primed on the place-order tap (see lib/sound.ts), so it isn't
+ * silenced by the browser autoplay policy.
  */
 
 const HOLD_MS = 2500
 
-/** A gentle 3-note ascending chime via Web Audio — no asset, respects mute. */
-function playChime(): void {
-  try {
-    const Ctor =
-      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (Ctor === undefined) return
-    const ctx = new Ctor()
-    const now = ctx.currentTime
-    const notes = [523.25, 659.25, 783.99] // C5, E5, G5
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = "sine"
-      osc.frequency.value = freq
-      const start = now + i * 0.12
-      gain.gain.setValueAtTime(0, start)
-      gain.gain.linearRampToValueAtTime(0.18, start + 0.03)
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.5)
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.start(start)
-      osc.stop(start + 0.55)
-    })
-    setTimeout(() => void ctx.close().catch(() => undefined), 1500)
-  } catch {
-    // Audio is best-effort; the visual carries the moment.
-  }
-}
-
 export function OrderSuccessCelebration({ onDone }: { onDone: () => void }) {
   useEffect(() => {
-    playChime()
+    playSuccessChime()
     const timer = setTimeout(onDone, HOLD_MS)
     return () => clearTimeout(timer)
   }, [onDone])

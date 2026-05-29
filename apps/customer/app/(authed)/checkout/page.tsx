@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { useCart } from "@/lib/cart"
 import { OrderSuccessCelebration } from "@/components/order-success-celebration"
 import { describeApiError, formatPriceFromPaise } from "@/lib/format"
+import { primeAudio } from "@/lib/sound"
 
 export default function CheckoutPage() {
   const api = useApi()
@@ -260,7 +261,12 @@ export default function CheckoutPage() {
             size="lg"
             className="w-full"
             disabled={place.isPending || selectedAddressId === null}
-            onClick={() => place.mutate()}
+            onClick={() => {
+              // Unlock audio within the tap so the success chime can play even
+              // though it fires later (after the async place completes).
+              primeAudio()
+              place.mutate()
+            }}
           >
             {place.isPending && <Loader2 className="size-4 animate-spin" />}
             {place.isPending
