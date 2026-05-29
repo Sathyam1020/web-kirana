@@ -2,6 +2,7 @@ import { createServer } from "node:http"
 import { buildApp } from "./app.js"
 import { env } from "./config/env.js"
 import { disconnect as disconnectDb } from "./db/prisma.js"
+import { registerJobs } from "./jobs/index.js"
 import { logger } from "./lib/logger.js"
 import { registerNotifications } from "./notifications/index.js"
 import { initRealtime } from "./realtime/index.js"
@@ -10,6 +11,7 @@ const app = buildApp()
 const server = createServer(app)
 const io = initRealtime(server)
 registerNotifications()
+registerJobs()
 
 // Track in-flight sockets so graceful shutdown can drain them.
 const sockets = new Set<import("node:net").Socket>()

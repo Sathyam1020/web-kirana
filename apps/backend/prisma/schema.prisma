@@ -280,6 +280,10 @@ model Store {
   isActive Boolean @default(true)
   isOpen   Boolean @default(false)
 
+  // Phase 11 — opt-in: when true, a daily cron re-enables this store's products
+  // (isAvailable=true) so the owner re-checks stock each morning. Default off.
+  autoResetAvailability Boolean @default(false)
+
   // Stored coordinates; the geography column `location` is maintained by
   // a database trigger added in the PostGIS migration. Marked Unsupported
   // so Prisma knows it exists and won't try to drop it on the next migrate,

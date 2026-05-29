@@ -90,6 +90,7 @@ export type UpdateStoreBody = Partial<{
   pincode: string
   imageUrl: string | null
   imagePublicId: string | null
+  autoResetAvailability: boolean
 }>
 
 // ---------- Products (owner) --------------------------------------------

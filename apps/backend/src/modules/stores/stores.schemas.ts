@@ -54,6 +54,7 @@ export const updateStoreBodySchema = z
     pincode: z.string().trim().min(3).max(20).optional(),
     imageUrl: imageUrlSchema.nullable().optional(),
     imagePublicId: imagePublicIdSchema.nullable().optional(),
+    autoResetAvailability: z.boolean().optional(),
   })
   .strict()
   .superRefine((val, ctx) => {

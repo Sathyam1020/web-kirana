@@ -57,29 +57,12 @@ function buildPayload(msg: WhatsAppTemplateMessage): Record<string, unknown> {
   }
 }
 
-export async function sendWhatsAppTemplate(msg: WhatsAppTemplateMessage): Promise<void> {
-  const payload = buildPayload(msg)
-  const log = await prisma.whatsAppMessageLog.create({
-    data: {
-      toPhone: msg.toPhone,
-      templateName: msg.templateName,
-      payload: payload as Prisma.InputJsonValue,
-      status: WhatsAppMessageStatus.PENDING,
-    },
-  })
+const NOT_CONFIGURED = "WhatsApp not configured"
+const MAX_ATTEMPTS = 3
 
-  if (!isWhatsAppConfigured()) {
-    await prisma.whatsAppMessageLog.update({
-      where: { id: log.id },
-      data: {
-        status: WhatsAppMessageStatus.FAILED,
-        errorMessage: "WhatsApp not configured",
-        lastAttemptAt: new Date(),
-      },
-    })
-    return
-  }
-
+/** POST a stored payload to the Graph API and record the outcome on its outbox
+ *  row. Shared by the initial send and the Phase 11 retry sweep. */
+async function dispatchToGraph(logId: string, payload: unknown, attempt: number): Promise<void> {
   const url = `https://graph.facebook.com/${env.WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`
   try {
     const res = await fetch(url, {
@@ -97,22 +80,24 @@ export async function sendWhatsAppTemplate(msg: WhatsAppTemplateMessage): Promis
     const waMessageId = data.messages?.[0]?.id
     if (res.ok && waMessageId !== undefined) {
       await prisma.whatsAppMessageLog.update({
-        where: { id: log.id },
+        where: { id: logId },
         data: {
           status: WhatsAppMessageStatus.SENT,
           waMessageId,
-          attempts: 1,
+          attempts: attempt,
           lastAttemptAt: new Date(),
+          errorCode: null,
+          errorMessage: null,
         },
       })
     } else {
       await prisma.whatsAppMessageLog.update({
-        where: { id: log.id },
+        where: { id: logId },
         data: {
           status: WhatsAppMessageStatus.FAILED,
           errorCode: String(data.error?.code ?? res.status),
           errorMessage: data.error?.message ?? "send failed",
-          attempts: 1,
+          attempts: attempt,
           lastAttemptAt: new Date(),
         },
       })
@@ -120,14 +105,71 @@ export async function sendWhatsAppTemplate(msg: WhatsAppTemplateMessage): Promis
     }
   } catch (err) {
     await prisma.whatsAppMessageLog.update({
-      where: { id: log.id },
+      where: { id: logId },
       data: {
         status: WhatsAppMessageStatus.FAILED,
         errorMessage: err instanceof Error ? err.message : "network error",
-        attempts: 1,
+        attempts: attempt,
         lastAttemptAt: new Date(),
       },
     })
     logger.warn({ err }, "whatsapp: send threw")
   }
+}
+
+export async function sendWhatsAppTemplate(msg: WhatsAppTemplateMessage): Promise<void> {
+  const payload = buildPayload(msg)
+  const log = await prisma.whatsAppMessageLog.create({
+    data: {
+      toPhone: msg.toPhone,
+      templateName: msg.templateName,
+      payload: payload as Prisma.InputJsonValue,
+      status: WhatsAppMessageStatus.PENDING,
+    },
+  })
+
+  if (!isWhatsAppConfigured()) {
+    await prisma.whatsAppMessageLog.update({
+      where: { id: log.id },
+      data: {
+        status: WhatsAppMessageStatus.FAILED,
+        errorMessage: NOT_CONFIGURED,
+        lastAttemptAt: new Date(),
+      },
+    })
+    return
+  }
+
+  await dispatchToGraph(log.id, payload, 1)
+}
+
+/**
+ * Phase 11 cron — re-send transiently-failed messages. Skips "not configured"
+ * rows and anything past MAX_ATTEMPTS. Returns how many it retried.
+ */
+export async function retryFailedWhatsApp(limit = 50): Promise<number> {
+  if (!isWhatsAppConfigured()) return 0
+  const rows = await prisma.whatsAppMessageLog.findMany({
+    where: {
+      status: WhatsAppMessageStatus.FAILED,
+      attempts: { lt: MAX_ATTEMPTS },
+      errorMessage: { not: NOT_CONFIGURED },
+    },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+  })
+
+  let retried = 0
+  for (const row of rows) {
+    // Claim the row first (FAILED → PENDING) so an overlapping/slow tick can't
+    // re-select and double-send the same message. Only dispatch if we won.
+    const claimed = await prisma.whatsAppMessageLog.updateMany({
+      where: { id: row.id, status: WhatsAppMessageStatus.FAILED },
+      data: { status: WhatsAppMessageStatus.PENDING, lastAttemptAt: new Date() },
+    })
+    if (claimed.count === 0) continue
+    await dispatchToGraph(row.id, row.payload, row.attempts + 1)
+    retried++
+  }
+  return retried
 }

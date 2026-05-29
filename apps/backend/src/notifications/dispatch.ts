@@ -109,6 +109,17 @@ const CUSTOMER_STATUS_COPY: Record<string, { title: string; body: (store: string
   REJECTED: { title: "Order rejected", body: (s) => `${s} couldn't accept your order.` },
 }
 
+async function onSystemCancelledToCustomer(orderId: string): Promise<void> {
+  const order = await loadOrder(orderId)
+  if (order === null) return
+  await pushToUser(order.customerId, {
+    title: "Order cancelled",
+    body: `${order.storeNameSnapshot} didn't accept your order in time — you haven't been charged.`,
+    url: `/orders/${order.id}`,
+    tag: `order-${order.id}`,
+  })
+}
+
 async function onCustomerFacingStatus(orderId: string, toStatus: string): Promise<void> {
   const copy = CUSTOMER_STATUS_COPY[toStatus]
   if (copy === undefined) return
@@ -133,8 +144,12 @@ export function dispatchStatusChange(
   toStatus: string,
   actorType: string,
 ): Promise<void> {
-  if (toStatus === "CANCELLED" && actorType === "CUSTOMER") {
-    return onCustomerCancelled(orderId)
+  if (toStatus === "CANCELLED") {
+    // Customer cancelled → tell the owner; SYSTEM auto-cancelled → tell the
+    // customer. (Owners reject, they don't cancel.)
+    return actorType === "CUSTOMER"
+      ? onCustomerCancelled(orderId)
+      : onSystemCancelledToCustomer(orderId)
   }
   return onCustomerFacingStatus(orderId, toStatus)
 }

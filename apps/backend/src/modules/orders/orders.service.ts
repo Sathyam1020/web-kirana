@@ -18,6 +18,7 @@ import {
   StoreClosedError,
   ValidationError,
 } from "../../lib/errors.js"
+import { logger } from "../../lib/logger.js"
 import { effectivePricePaise } from "../../lib/pricing.js"
 import { computeCouponDiscountPaise } from "../coupons/coupons.service.js"
 import type {
@@ -770,4 +771,65 @@ export function cancelOrder(
     patch: { cancelledAt: new Date(), cancellationReason: reason ?? null },
     reason: reason ?? null,
   })
+}
+
+const AUTO_CANCEL_REASON = "Auto-cancelled — the store didn't accept in time"
+
+/**
+ * Phase 11 cron — cancel orders left in PLACED past the cutoff (the store never
+ * accepted). SYSTEM actor; per-order guarded update so it can't race an owner
+ * accept / customer cancel, with a history row + order.status_changed emit
+ * (which notifies the customer). Bounded per run; returns how many it cancelled.
+ */
+export async function autoCancelStalePlacedOrders(
+  olderThan: Date,
+  limit = 200,
+): Promise<number> {
+  const stale = await prisma.order.findMany({
+    where: { status: OrderStatus.PLACED, placedAt: { lt: olderThan } },
+    select: { id: true },
+    take: limit,
+  })
+
+  let cancelled = 0
+  for (const { id } of stale) {
+    try {
+      const row = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.order.updateMany({
+          where: { id, status: OrderStatus.PLACED },
+          data: {
+            status: OrderStatus.CANCELLED,
+            cancelledAt: new Date(),
+            cancellationReason: AUTO_CANCEL_REASON,
+          },
+        })
+        if (claimed.count === 0) return null // raced — owner accepted / customer cancelled
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId: id,
+            fromStatus: OrderStatus.PLACED,
+            toStatus: OrderStatus.CANCELLED,
+            actorType: ActorType.SYSTEM,
+            actorUserId: null,
+            reason: AUTO_CANCEL_REASON,
+          },
+        })
+        return tx.order.findUniqueOrThrow({ where: { id }, select: ORDER_SELECT })
+      })
+      if (row === null) continue
+      events.emit({
+        type: "order.status_changed",
+        orderId: row.id,
+        storeId: row.storeId,
+        customerId: row.customerId,
+        fromStatus: OrderStatus.PLACED,
+        toStatus: OrderStatus.CANCELLED,
+        actorType: ActorType.SYSTEM,
+      })
+      cancelled++
+    } catch (err) {
+      logger.warn({ err, orderId: id }, "auto-cancel: failed for one order")
+    }
+  }
+  return cancelled
 }

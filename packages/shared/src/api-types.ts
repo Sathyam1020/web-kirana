@@ -100,6 +100,7 @@ export interface StoreOwnerView {
   phone: string
   isActive: boolean
   isOpen: boolean
+  autoResetAvailability: boolean
   latitude: string
   longitude: string
   deliveryRadiusMeters: number

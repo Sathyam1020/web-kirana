@@ -22,6 +22,7 @@ export interface StoreView {
   phone: string
   isActive: boolean
   isOpen: boolean
+  autoResetAvailability: boolean
   latitude: string
   longitude: string
   deliveryRadiusMeters: number
@@ -43,6 +44,7 @@ const SELECT = {
   phone: true,
   isActive: true,
   isOpen: true,
+  autoResetAvailability: true,
   latitude: true,
   longitude: true,
   deliveryRadiusMeters: true,
@@ -64,6 +66,7 @@ function toView(row: {
   phone: string
   isActive: boolean
   isOpen: boolean
+  autoResetAvailability: boolean
   latitude: unknown
   longitude: unknown
   deliveryRadiusMeters: number
@@ -151,6 +154,8 @@ export async function updateOwnStore(
   if (input.pincode !== undefined) data.pincode = input.pincode
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
   if (input.imagePublicId !== undefined) data.imagePublicId = input.imagePublicId
+  if (input.autoResetAvailability !== undefined)
+    data.autoResetAvailability = input.autoResetAvailability
 
   if (Object.keys(data).length === 0) {
     return getOwnStore(ownerId)
@@ -195,6 +200,27 @@ export async function toggleOpen(
     ownerId,
   })
   return toView(updated)
+}
+
+/**
+ * Phase 11 cron — re-enable products for stores that opted into the daily
+ * availability reset, so owners re-check stock each morning. Only flips
+ * currently-unavailable, active products on active opted-in stores.
+ */
+export async function resetAvailabilityForOptedInStores(): Promise<{
+  stores: number
+  products: number
+}> {
+  const stores = await prisma.store.findMany({
+    where: { autoResetAvailability: true, isActive: true },
+    select: { id: true },
+  })
+  if (stores.length === 0) return { stores: 0, products: 0 }
+  const res = await prisma.product.updateMany({
+    where: { storeId: { in: stores.map((s) => s.id) }, isActive: true, isAvailable: false },
+    data: { isAvailable: true },
+  })
+  return { stores: stores.length, products: res.count }
 }
 
 /**

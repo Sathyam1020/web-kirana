@@ -58,6 +58,10 @@ const EnvSchema = z
     WHATSAPP_APP_SECRET: z.string().optional(),
     WHATSAPP_VERIFY_TOKEN: z.string().optional(),
     WHATSAPP_API_VERSION: z.string().default("v22.0"),
+
+    // --- Cron jobs (Phase 11) ---------------------------------------------
+    // Orders left in PLACED longer than this are auto-cancelled by the cron.
+    ORDER_AUTO_CANCEL_MINUTES: z.coerce.number().int().positive().default(30),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET.length < 48) {
