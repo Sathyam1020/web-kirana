@@ -609,6 +609,17 @@ export function buildApi(http: AxiosInstance) {
         unwrap<{ ticket: string; ttlMs: number }>(http.post("/v1/realtime/ticket")),
     },
 
+    push: {
+      // Phase 10 — Web Push subscriptions. Body matches PushSubscription.toJSON().
+      subscribe: (sub: {
+        endpoint: string
+        keys: { p256dh: string; auth: string }
+        userAgent?: string
+      }): Promise<void> => http.post("/v1/push/subscribe", sub).then(() => undefined),
+      unsubscribe: (endpoint: string): Promise<void> =>
+        http.delete("/v1/push/subscribe", { data: { endpoint } }).then(() => undefined),
+    },
+
     products: {
       // owner products: list returns flat; mutations return { product }
       list: (q: OwnerProductsQuery = {}) =>

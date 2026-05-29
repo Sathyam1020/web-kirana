@@ -15,10 +15,12 @@ import { categoriesPublicRouter } from "./modules/categories/categories.routes.j
 import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
 import { departmentsPublicRouter } from "./modules/departments/departments.routes.js"
 import { ordersRouter } from "./modules/orders/orders.routes.js"
+import { pushRouter } from "./modules/push/push.routes.js"
 import { realtimeRouter } from "./modules/realtime/realtime.routes.js"
 import { searchRouter } from "./modules/search/search.routes.js"
 import { storesPublicRouter, storesRouter } from "./modules/stores/stores.routes.js"
 import { uploadsRouter } from "./modules/uploads/uploads.routes.js"
+import { whatsappWebhookRouter } from "./modules/webhooks/whatsapp.routes.js"
 
 export function buildApp(): Express {
   const app = express()
@@ -49,6 +51,11 @@ export function buildApp(): Express {
   // the v1 router (which has no /auth mount) and bouncing it through
   // our error handler with a misleading FORBIDDEN envelope.
   app.all("/v1/auth/{*splat}", toNodeHandler(auth))
+
+  // WhatsApp webhook mounts BEFORE express.json() — its POST handler needs the
+  // raw body for X-Hub-Signature-256 verification (it applies express.raw()
+  // itself). Same raw-body reason the better-auth handler sits up here.
+  app.use("/v1/webhooks/whatsapp", whatsappWebhookRouter)
 
   app.use(express.json({ limit: "1mb" }))
 
@@ -81,6 +88,7 @@ export function buildApp(): Express {
   v1.use("/coupons", couponsPublicRouter)
   v1.use("/departments", departmentsPublicRouter)
   v1.use("/orders", ordersRouter)
+  v1.use("/push", pushRouter)
   v1.use("/realtime", realtimeRouter)
   v1.use("/search", searchRouter)
   v1.use("/uploads", uploadsRouter)

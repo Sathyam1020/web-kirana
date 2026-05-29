@@ -35,6 +35,7 @@
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "socket.io": "^4.8.3",
+    "web-push": "^3.6.7",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -42,6 +43,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.5",
     "@types/supertest": "^6.0.2",
+    "@types/web-push": "^3.6.4",
     "@workspace/eslint-config": "*",
     "@workspace/typescript-config": "*",
     "eslint": "^9.39.2",

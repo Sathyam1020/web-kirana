@@ -41,6 +41,23 @@ const EnvSchema = z
     CLOUDINARY_CLOUD_NAME: z.string().optional(),
     CLOUDINARY_API_KEY: z.string().optional(),
     CLOUDINARY_API_SECRET: z.string().optional(),
+
+    // --- Web Push (Phase 10) ----------------------------------------------
+    // Optional: the WebPushProvider no-ops until both keys are set, so the
+    // backend boots without them. Generate once with `npx web-push generate-vapid-keys`.
+    VAPID_PUBLIC_KEY: z.string().optional(),
+    VAPID_PRIVATE_KEY: z.string().optional(),
+    VAPID_SUBJECT: z.string().default("mailto:dev@kirana.local"),
+
+    // --- WhatsApp Cloud API (Phase 10) ------------------------------------
+    // Optional: the WhatsAppProvider no-ops (logs a FAILED outbox row) until
+    // PHONE_NUMBER_ID + ACCESS_TOKEN are set. APP_SECRET + VERIFY_TOKEN gate
+    // the webhook. Templates must be pre-approved in Meta Business Manager.
+    WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+    WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+    WHATSAPP_APP_SECRET: z.string().optional(),
+    WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+    WHATSAPP_API_VERSION: z.string().default("v22.0"),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.BETTER_AUTH_SECRET.length < 48) {
