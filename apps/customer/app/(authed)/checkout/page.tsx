@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { useCart } from "@/lib/cart"
+import { OrderSuccessCelebration } from "@/components/order-success-celebration"
 import { describeApiError, formatPriceFromPaise } from "@/lib/format"
 
 export default function CheckoutPage() {
@@ -30,11 +31,15 @@ export default function CheckoutPage() {
   const [couponCode, setCouponCode] = useState("")
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewing, setPreviewing] = useState(false)
+  // Set on a successful place → shows the celebration, which then routes to
+  // the order page (so the redirect doesn't race the animation).
+  const [placedOrderId, setPlacedOrderId] = useState<string | null>(null)
 
-  // No items → nothing to check out.
+  // No items → nothing to check out. But once an order is placed we clear the
+  // cart on purpose — the celebration handles that redirect, so don't bounce.
   useEffect(() => {
-    if (items.length === 0) router.replace("/stores")
-  }, [items.length, router])
+    if (items.length === 0 && placedOrderId === null) router.replace("/stores")
+  }, [items.length, router, placedOrderId])
 
   const addresses = useQuery({
     queryKey: ["addresses"],
@@ -89,8 +94,8 @@ export default function CheckoutPage() {
     },
     onSuccess: (order) => {
       cart.clear()
-      toast.success("Order placed!")
-      router.replace(`/orders/${order.id}`)
+      // The celebration overlay owns the transition to the order page.
+      setPlacedOrderId(order.id)
     },
     onError: (err) => {
       if (err instanceof ApiError && err.code === "CART_CHANGED") {
@@ -109,6 +114,12 @@ export default function CheckoutPage() {
       toast.error(describeApiError(err))
     },
   })
+
+  if (placedOrderId !== null) {
+    return (
+      <OrderSuccessCelebration onDone={() => router.replace(`/orders/${placedOrderId}`)} />
+    )
+  }
 
   if (items.length === 0) return null
 

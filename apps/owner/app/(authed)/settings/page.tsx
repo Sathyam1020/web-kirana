@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Image as ImageIcon, Loader2, Trash2 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
+import { NotificationToggle } from "@/components/notification-toggle"
 import { describeApiError } from "@/lib/format"
 
 export default function SettingsPage() {
@@ -94,6 +95,8 @@ export default function SettingsPage() {
           Your cover image and promotional banners.
         </p>
       </div>
+
+      <NotificationToggle />
 
       {/* Store cover */}
       <Card className="p-5 space-y-3">

@@ -13,4 +13,6 @@ export const env = {
   // ticket rather than the cookie). The API origin must be in the backend's
   // CORS allowlist. Defaults to the dev backend; set NEXT_PUBLIC_WS_URL in prod.
   wsUrl: process.env.NEXT_PUBLIC_WS_URL ?? "http://localhost:4000",
+  // Web Push VAPID public key (Phase 10). Empty → notification opt-in is hidden.
+  vapidPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
 }

@@ -67,3 +67,40 @@ self.addEventListener("fetch", (event) => {
     )
   }
 })
+
+// --- Web Push (Phase 10) -------------------------------------------------
+// The backend sends { title, body, url, tag }. Show it, and on click focus an
+// existing window (navigating it to the order) or open a new one.
+self.addEventListener("push", (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch (_e) {
+    data = { title: "Kirana", body: event.data ? event.data.text() : "" }
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Kirana", {
+      body: data.body || "",
+      tag: data.tag,
+      data: { url: data.url || "/" },
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+    }),
+  )
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const target = (event.notification.data && event.notification.data.url) || "/"
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate(target)
+          return client.focus()
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(target)
+    }),
+  )
+})

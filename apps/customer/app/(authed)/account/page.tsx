@@ -4,6 +4,7 @@ import { useApi, useAuthStore } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { Card } from "@workspace/ui/components/card"
 import { ArrowLeft, ChevronRight, LogOut, MapPin } from "lucide-react"
+import { NotificationToggle } from "@/components/notification-toggle"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -62,6 +63,8 @@ export default function AccountPage() {
           </span>
           <ChevronRight className="size-4 text-muted-foreground" />
         </Link>
+
+        <NotificationToggle />
 
         <Button
           variant="ghost"
