@@ -62,18 +62,23 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 8.6   | Staff assignment to deliveries + staff app (after lifecycle)       | ⏳ pending     |           |
 | 9     | Socket.IO real-time (ticket handshake + order event rooms)         | ✅ done        | `c61006d` |
 | 10    | Notifications — web-push (both) + WhatsApp (owner) + webhook       | ✅ done        | `0f98218` |
-| 11    | Cron jobs — auto-cancel PLACED, daily isAvailable reset            | ⏳ pending     |           |
-| 12    | Cloudinary signed uploads                                          | ⏳ pending     |           |
+| 11    | Cron jobs — auto-cancel PLACED + WhatsApp retry + availability reset| ✅ done        | `afb8304` |
+| 12    | ~~Cloudinary signed uploads~~ — stale duplicate of 6.7 (done)      | ✅ n/a         | `150f0db` |
 | 13    | Hardening pass + apps/backend/README + full suite                  | ⏳ pending     |           |
 
-**Side track (mentioned but not started):**
-- `apps/admin` Next.js shell — admin-only UI for approving owners + managing
-  categories. The API endpoints exist (`/v1/admin/*`). The user said to defer
-  the Next.js app for now.
-- `apps/customer` and `apps/owner` PWAs — not started; only `apps/web`
-  (shadcn starter) exists. CORS reads `CORS_ALLOWED_ORIGINS` from env as a
-  comma-separated list so future frontends just append their origin.
-- **`apps/staff`** PWA (was "apps/rider") — implied by the Phase 8.5 Staff plan below.
+**Frontends (all three built):**
+- `apps/customer` PWA — discovery, cart, COD checkout + success celebration,
+  live order tracking, web-push opt-in.
+- `apps/owner` PWA — store/products/coupons/banners management, live order
+  inbox + lifecycle, new-order alert + web-push.
+- `apps/admin` — dashboard + owners (approve/reject), departments, categories,
+  coupons, promotions, login. Covers owner onboarding (no manual API call needed).
+- Each runs on a subdomain host (customer./owner./admin.localhost) for
+  concurrent multi-role login. CORS reads `CORS_ALLOWED_ORIGINS` from env.
+
+**Side track (not started):**
+- **`apps/staff`** PWA (was "apps/rider") — implied by the Phase 8.5 Staff plan
+  below; deferred by the user pending product brainstorming.
 
 ---
 
@@ -254,6 +259,27 @@ Full design + rationale in **PHASE9.md**. The essentials:
 - FE: `useRealtime` in `packages/auth` + a `RealtimeBridge` per app that
   invalidates order query keys on events. Polling dropped to a 60s fallback.
 - Tests: `tests/realtime.test.ts` (6) — live server + real socket clients.
+
+---
+
+## Phase 11 — Cron jobs (notes for future sessions)
+
+Full design in **PHASE11.md**. Essentials:
+
+- In-process `node-cron`, `registerJobs()` in `server.ts` (NOT buildApp).
+  Single-instance only — needs a distributed lock to scale out. Ticks are
+  guarded + non-overlapping (a still-running job skips its next tick).
+- **Jobs:** auto-cancel stale PLACED orders (every 5 min, cutoff
+  `ORDER_AUTO_CANCEL_MINUTES`=30, SYSTEM actor → notifies customer); WhatsApp
+  retry (every 2 min, claims rows FAILED→PENDING before re-send so no
+  double-send, no-op until configured); daily availability reset 05:00 IST
+  (opt-in per store).
+- **New column:** `Store.autoResetAvailability` (default false, additive
+  migration) + owner Settings toggle. The reset flips opted-in stores' products
+  `isAvailable false→true`.
+- **New env:** `ORDER_AUTO_CANCEL_MINUTES` (default 30).
+- Tests: `tests/cron.test.ts` (5). Data-integrity reviewer: clean after the
+  WhatsApp-retry claim fix.
 
 ---
 
