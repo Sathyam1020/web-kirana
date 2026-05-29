@@ -20,6 +20,11 @@ COPY . .
 RUN npm ci --include=dev
 
 # Generate the Prisma client (output is gitignored, so it must be built here).
+# Prisma 7's config loader eagerly resolves env() — `prisma generate` doesn't
+# connect, but the loader still demands the var. Railway doesn't pass service
+# env vars into Docker builds, so give it a placeholder; the real DIRECT_URL
+# injected at runtime overrides this ENV.
+ENV DIRECT_URL="postgres://placeholder:placeholder@localhost:5432/placeholder"
 RUN npm run db:generate --workspace=@workspace/backend
 
 ENV NODE_ENV=production
