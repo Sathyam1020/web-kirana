@@ -36,7 +36,10 @@ export default function StoresPage() {
       api.stores.nearby({
         lat: location!.lat,
         lng: location!.lng,
-        radiusMeters: 5000,
+        // Outer cap only — the backend already filters by each store's own
+        // deliveryRadiusMeters. Keep this generous so a store with a wide
+        // delivery reach still appears for a customer at the edge of it.
+        radiusMeters: 50_000,
         limit: 30,
         includeClosed: true,
       }),

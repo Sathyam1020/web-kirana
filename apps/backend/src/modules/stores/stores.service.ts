@@ -449,6 +449,16 @@ export async function listNearbyStores(opts: {
   const conditions: Sql[] = [
     sql`s."isActive" = true`,
     sql`s.location IS NOT NULL`,
+    // Store-centric coverage: each store sets its own deliveryRadiusMeters, so a
+    // store with a 15km reach should appear for a user 6km away even if the
+    // user's UI radius is smaller. The user-provided radiusMeters acts as an
+    // outer sanity cap so we don't surface a store 80km away just because it
+    // claims that radius.
+    sql`ST_DWithin(
+      s.location,
+      ST_SetSRID(ST_MakePoint(${opts.lng}, ${opts.lat}), 4326)::geography,
+      s."deliveryRadiusMeters"
+    )`,
     sql`ST_DWithin(
       s.location,
       ST_SetSRID(ST_MakePoint(${opts.lng}, ${opts.lat}), 4326)::geography,
