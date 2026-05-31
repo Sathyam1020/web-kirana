@@ -168,5 +168,13 @@ export { CouponScope, CouponType }
  */
 export const listActiveCouponsQuerySchema = z.strictObject({
   storeId: z.string().min(1).max(40).optional(),
+  /**
+   * Lifecycle window of coupons to return:
+   *  - `active` (default) — `validFrom <= now AND validUntil > now`
+   *  - `expired` — `validUntil <= now`
+   * Both honor `isActive=true`. Used by the customer account's Offers
+   * page to render the Active and Expired sections from the same endpoint.
+   */
+  status: z.enum(["active", "expired"]).optional().default("active"),
 })
 export type ListActiveCouponsQuery = z.infer<typeof listActiveCouponsQuerySchema>

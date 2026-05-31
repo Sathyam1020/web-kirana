@@ -311,26 +311,38 @@ const PUBLIC_SELECT = {
 } as const
 
 /**
- * List currently-redeemable coupons for the customer-facing carousel.
+ * List coupons for the customer-facing carousel + offers page.
  *
  * Returns combined GLOBAL (admin) + STORE (owner) coupons when `storeId`
- * is provided; GLOBAL only otherwise. Order: GLOBAL first (platform-wide
- * offers feel like the primary deal), then STORE; expiring soonest
- * surfaces first within each scope so customers see what they need to
- * grab today.
+ * is provided; GLOBAL only otherwise.
  *
- * `validFrom` / `validUntil` filtering means a coupon scheduled for the
- * future won't appear yet, and an expired one stops appearing immediately.
+ *   - `status='active'` (default): `validFrom <= now AND (validUntil
+ *     IS NULL OR validUntil > now)`. Sorted GLOBAL-first then by
+ *     expiring-soonest.
+ *   - `status='expired'`: `validUntil <= now`. Sorted by most-recently-
+ *     expired first (descending) so the freshest expiries surface
+ *     first on the offers screen's archive section.
+ *
+ * `isActive=true` always required — soft-deleted coupons stay out of
+ * either list.
  */
 export async function listActivePublic(
   storeId: string | undefined,
+  status: "active" | "expired" = "active",
 ): Promise<PublicCouponView[]> {
   const now = new Date()
-  const validityFilter = {
-    isActive: true,
-    validFrom: { lte: now },
-    OR: [{ validUntil: null }, { validUntil: { gt: now } }],
-  }
+
+  const validityFilter =
+    status === "active"
+      ? {
+          isActive: true,
+          validFrom: { lte: now },
+          OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        }
+      : {
+          isActive: true,
+          validUntil: { not: null, lte: now },
+        }
 
   const scopeFilter =
     storeId !== undefined
@@ -345,9 +357,11 @@ export async function listActivePublic(
   const rows = await prisma.coupon.findMany({
     where: { AND: [validityFilter, scopeFilter] },
     select: PUBLIC_SELECT,
-    // GLOBAL ('GLOBAL' < 'STORE' alphabetically) → asc puts global first.
-    orderBy: [{ scope: "asc" }, { validUntil: "asc" }, { createdAt: "desc" }],
-    take: 20,
+    orderBy:
+      status === "active"
+        ? [{ scope: "asc" }, { validUntil: "asc" }, { createdAt: "desc" }]
+        : [{ validUntil: "desc" }, { createdAt: "desc" }],
+    take: 30,
   })
   return rows
 }

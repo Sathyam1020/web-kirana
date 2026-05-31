@@ -105,8 +105,8 @@ export async function ownerSoftDelete(req: Request, res: Response): Promise<void
 // --- Public listing (DP-1) ---------------------------------------------
 
 export async function listActive(req: Request, res: Response): Promise<void> {
-  const { storeId } = getValidated(req).query as ListActiveCouponsQuery
-  const items = await service.listActivePublic(storeId)
+  const { storeId, status } = getValidated(req).query as ListActiveCouponsQuery
+  const items = await service.listActivePublic(storeId, status)
   sendData(res, { items })
 }
 

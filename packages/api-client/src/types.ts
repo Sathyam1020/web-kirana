@@ -17,6 +17,7 @@ export type {
   DiscountType,
   ErrorEnvelope,
   ErrorEnvelopeBody,
+  MeStats,
   NearbyResult,
   OrderItemView,
   OrdersListResult,

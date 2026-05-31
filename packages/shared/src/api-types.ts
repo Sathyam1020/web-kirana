@@ -504,6 +504,15 @@ export interface PublicCouponsResult {
   items: PublicCoupon[]
 }
 
+/**
+ * Hero stats shown on the customer account page — lifetime orders and total
+ * savings across all of the customer's orders.
+ */
+export interface MeStats {
+  ordersPlaced: number
+  savingsPaise: number
+}
+
 export type PreviewFailureReason =
   | "INVALID_CODE"
   | "MIN_ORDER_NOT_MET"
