@@ -1,5 +1,6 @@
 import { join, sql, type Sql } from "@prisma/client-runtime-utils"
 import { prisma } from "../../db/prisma.js"
+import { OrderStatus } from "../../generated/prisma/enums.js"
 import type { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { ConflictError, NotFoundError, StoreNotCreatedError } from "../../lib/errors.js"
@@ -557,6 +558,22 @@ export interface CategorySection {
   hasMore: boolean
 }
 
+/**
+ * Trust signals shown on the customer home hero. Each value is `null` until
+ * we have enough sample size; the FE hides individual pills accordingly.
+ *
+ *   - ordersThisMonth   — count of placed-or-later orders this calendar month
+ *   - avgDeliveryMinutes — average (deliveredAt - acceptedAt) over the past
+ *                          30 days; null until at least 5 delivered orders
+ *   - onTimePercent      — % of those that finished within 45 min of accept;
+ *                          null on the same threshold
+ */
+export interface StoreTrustStats {
+  ordersThisMonth: number
+  avgDeliveryMinutes: number | null
+  onTimePercent: number | null
+}
+
 export interface StoreDetailResult {
   store: StorePublicView
   departments: StoreDetailDepartmentView[]
@@ -568,6 +585,55 @@ export interface StoreDetailResult {
   totalCategoryCount: number
   // Phase 6.8 — active promotional banner, or null.
   activeBanner: { id: string; name: string; imageUrl: string } | null
+  // DP-1 — trust signals for the hero stats pills.
+  stats: StoreTrustStats
+}
+
+const ON_TIME_THRESHOLD_MS = 45 * 60 * 1000
+const STATS_MIN_SAMPLE = 5
+
+async function getStoreTrustStats(storeId: string): Promise<StoreTrustStats> {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const last30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+  const [ordersThisMonth, delivered] = await Promise.all([
+    prisma.order.count({
+      where: {
+        storeId,
+        createdAt: { gte: monthStart },
+        // Anything that survived past the "placed but never accepted" bin.
+        status: { notIn: [OrderStatus.REJECTED] },
+      },
+    }),
+    prisma.order.findMany({
+      where: {
+        storeId,
+        status: OrderStatus.DELIVERED,
+        deliveredAt: { gte: last30 },
+        acceptedAt: { not: null },
+      },
+      select: { acceptedAt: true, deliveredAt: true },
+    }),
+  ])
+
+  const durations: number[] = []
+  for (const o of delivered) {
+    if (o.acceptedAt === null || o.deliveredAt === null) continue
+    const d = o.deliveredAt.getTime() - o.acceptedAt.getTime()
+    if (d > 0) durations.push(d)
+  }
+
+  if (durations.length < STATS_MIN_SAMPLE) {
+    return { ordersThisMonth, avgDeliveryMinutes: null, onTimePercent: null }
+  }
+
+  const totalMs = durations.reduce((a, b) => a + b, 0)
+  const avgDeliveryMinutes = Math.round(totalMs / durations.length / 60_000)
+  const onTimeCount = durations.filter((d) => d <= ON_TIME_THRESHOLD_MS).length
+  const onTimePercent = Math.round((onTimeCount / durations.length) * 100)
+
+  return { ordersThisMonth, avgDeliveryMinutes, onTimePercent }
 }
 
 /**
@@ -674,29 +740,31 @@ async function loadProductsForStoreCategory(
 export async function getStorePublic(storeId: string): Promise<StoreDetailResult> {
   // Parallelize the three eager reads. The category-section materialisation
   // happens after we know which top-N categories to surface (sequential).
-  const [store, featuredRows, categoryStats, activeBanner] = await Promise.all([
-    prisma.store.findFirst({
-      where: { id: storeId, isActive: true },
-      select: PUBLIC_STORE_SELECT,
-    }),
-    prisma.product.findMany({
-      where: {
-        storeId,
-        isActive: true,
-        isAvailable: true,
-        isFeatured: true,
-        subcategory: { isAvailable: true },
-      },
-      select: PUBLIC_PRODUCT_SELECT,
-      orderBy: [
-        { featuredOrder: { sort: "asc", nulls: "last" } },
-        { createdAt: "desc" },
-      ],
-      take: MAX_FEATURED_PRODUCTS,
-    }),
-    computeStoreCategoryStats(storeId),
-    getActiveBanner(storeId),
-  ])
+  const [store, featuredRows, categoryStats, activeBanner, stats] =
+    await Promise.all([
+      prisma.store.findFirst({
+        where: { id: storeId, isActive: true },
+        select: PUBLIC_STORE_SELECT,
+      }),
+      prisma.product.findMany({
+        where: {
+          storeId,
+          isActive: true,
+          isAvailable: true,
+          isFeatured: true,
+          subcategory: { isAvailable: true },
+        },
+        select: PUBLIC_PRODUCT_SELECT,
+        orderBy: [
+          { featuredOrder: { sort: "asc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
+        take: MAX_FEATURED_PRODUCTS,
+      }),
+      computeStoreCategoryStats(storeId),
+      getActiveBanner(storeId),
+      getStoreTrustStats(storeId),
+    ])
   if (store === null) throw new NotFoundError("Store not found")
 
   // Department grid — only show departments that contain at least one
@@ -770,6 +838,7 @@ export async function getStorePublic(storeId: string): Promise<StoreDetailResult
     categorySections,
     totalCategoryCount: categoryStats.length,
     activeBanner,
+    stats,
   }
 }
 

@@ -573,7 +573,14 @@ export async function listCustomerOrders(
   customerId: string,
   query: ListOrdersQuery,
 ): Promise<OrderListResult> {
-  return listOrders({ customerId }, query.cursor, query.limit)
+  return listOrders(
+    {
+      customerId,
+      ...(query.storeId !== undefined ? { storeId: query.storeId } : {}),
+    },
+    query.cursor,
+    query.limit,
+  )
 }
 
 export async function getCustomerOrder(

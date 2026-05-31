@@ -8,6 +8,7 @@ import * as controller from "./coupons.controller.js"
 import {
   adminCreateCouponBodySchema,
   couponIdParamSchema,
+  listActiveCouponsQuerySchema,
   listCouponsQuerySchema,
   ownerCreateCouponBodySchema,
   previewCouponBodySchema,
@@ -82,12 +83,22 @@ couponsOwnerRouter.delete(
 )
 
 /**
- * Customer preview. Mounted under /v1/coupons. Requires CUSTOMER auth so
- * per-user limits are enforceable. Defensive catch-all keeps the public
- * router read-only-ish (only POST /preview is allowed).
+ * Public-ish coupon endpoints. Mounted under /v1/coupons.
+ *
+ * - GET /active — anonymous; returns active GLOBAL + active STORE coupons
+ *   for the home carousel.
+ * - POST /preview — CUSTOMER auth; previews a code against a cart.
+ *
+ * Defensive catch-all keeps anything else 404 so the router can never be
+ * accidentally widened by a later refactor.
  */
 export const couponsPublicRouter: Router = Router()
 
+couponsPublicRouter.get(
+  "/active",
+  validate({ query: listActiveCouponsQuerySchema }),
+  controller.listActive,
+)
 couponsPublicRouter.post(
   "/preview",
   requireAuth,

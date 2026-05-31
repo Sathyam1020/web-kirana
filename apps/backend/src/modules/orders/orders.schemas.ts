@@ -28,6 +28,9 @@ export type OrderIdParam = z.infer<typeof orderIdParamSchema>
 export const listOrdersQuerySchema = z.strictObject({
   cursor: z.string().min(1).max(40).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+  // Phase DP-1 — filter to a specific store. Used by the home "Buy again"
+  // rail to fetch only orders from the currently-selected primary store.
+  storeId: z.string().min(1).max(40).optional(),
 })
 export type ListOrdersQuery = z.infer<typeof listOrdersQuerySchema>
 
