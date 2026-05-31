@@ -66,6 +66,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 12    | ~~Cloudinary signed uploads~~ — stale duplicate of 6.7 (done)      | ✅ n/a         | `150f0db` |
 | 13    | Hardening — README + .env fix + full-suite pass + prod builds      | ✅ done        | `aadd3c8` |
 | DP-0  | Design system + motion foundation (tokens, motion lib, primitives) | ✅ done        | `a06a9aa` |
+| DP-1  | Customer home rebuild (store-first; bottom nav; coupon carousel)   | ✅ done        | `b5fb81e` |
 
 **Frontends (all three built):**
 - `apps/customer` PWA — discovery, cart, COD checkout + success celebration,
