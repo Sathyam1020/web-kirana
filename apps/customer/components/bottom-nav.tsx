@@ -35,10 +35,12 @@ const ITEMS: NavItem[] = [
 ]
 
 // Pathnames where the bottom nav stays hidden — single-task flows want the
-// full viewport. Order matters: longest prefix wins via simple startsWith.
+// full viewport (and their own sticky CTA sits in the bottom slot the nav
+// would otherwise occupy).
 const HIDE_ON_PATHS: string[] = [
   "/login",
   "/signup",
+  "/cart",
   "/checkout",
   // Deep order tracking is a single-task screen; the list at /orders keeps the nav.
   // Match `/orders/<id>` but not `/orders` itself.

@@ -27,7 +27,7 @@ import {
   useReducedMotion,
 } from "@workspace/ui/lib/motion"
 
-const HIDE_ON_PATHS: string[] = ["/login", "/signup", "/checkout"]
+const HIDE_ON_PATHS: string[] = ["/login", "/signup", "/cart", "/checkout"]
 function isOrderDetail(pathname: string): boolean {
   return /^\/orders\/[^/]+/.test(pathname)
 }
