@@ -36,9 +36,9 @@ import { motion } from "motion/react"
 import { useEffect, useState } from "react"
 
 import { BuyAgainRail } from "@/components/buy-again-rail"
-import { CategoryGrid } from "@/components/category-grid"
 import { ChooseStoreSheet } from "@/components/choose-store-sheet"
 import { CouponCarousel } from "@/components/coupon-carousel"
+import { DepartmentSections } from "@/components/department-sections"
 import { HomeHeader } from "@/components/home-header"
 import {
   NoLocationIllustration,
@@ -267,8 +267,10 @@ export default function HomePage() {
               onChangeStore={() => setChooseStoreOpen(true)}
             />
 
-            {/* Categories — above Buy again per user-locked design order. */}
-            <CategoryGrid
+            {/* Categories — above Buy again per user-locked design order.
+                Grouped by department (department header → 4-col grid of
+                category tiles), matching the /stores/[id] pattern. */}
+            <DepartmentSections
               storeId={primaryStore.id}
               storeName={primaryStore.name}
               departments={detailQuery.data?.departments}
@@ -298,6 +300,28 @@ export default function HomePage() {
               isLoading={detailQuery.isPending}
               skeletonCount={4}
             />
+
+            {/* Per-category product rails — mirrors /stores/[id]'s
+                categorySections so the home becomes a one-screen browse
+                of the store's catalogue, not just a featured-only teaser.
+                Each section header taps through to the dual-pane drilldown. */}
+            {detailQuery.data?.categorySections.map((section) =>
+              section.products.length === 0 ? null : (
+                <ProductRail
+                  key={section.category.id}
+                  title={section.category.name}
+                  seeAllHref={
+                    section.hasMore
+                      ? `/stores/${primaryStore.id}/categories/${section.category.id}`
+                      : undefined
+                  }
+                  products={section.products}
+                  storeId={primaryStore.id}
+                  storeName={primaryStore.name}
+                  skeletonCount={3}
+                />
+              ),
+            )}
 
             <CouponCarousel
               storeName={primaryStore.name}
