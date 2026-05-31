@@ -29,7 +29,6 @@ import { motion } from "motion/react"
 
 import { BuyAgainSheet } from "@/components/buy-again-sheet"
 import { ProductRail } from "@/components/product-rail"
-import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"

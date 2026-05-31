@@ -10,23 +10,25 @@
  * lives ABOVE this — its `bottom` offset is bumped to clear this nav.
  */
 
-import { Home, LayoutGrid, ListOrdered, Search, User } from "lucide-react"
+import { Home, ListOrdered, Search, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import { useSelectedStore } from "@/lib/selected-store"
 import { cn } from "@workspace/ui/lib/utils"
 
 interface NavItem {
   /** Stable id used to compute active state without string-matching the URL. */
-  id: "home" | "categories" | "search" | "orders" | "account"
+  id: "home" | "search" | "orders" | "account"
   label: string
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>
 }
 
+// 4 tabs — Categories was dropped in DP-2.A. The store-first model already
+// surfaces categories on the home (per primary store), so a separate
+// cross-store Categories index was redundant. Discovery happens via Home +
+// Search; the four remaining tabs each map to a clear user intent.
 const ITEMS: NavItem[] = [
   { id: "home", label: "Home", Icon: Home },
-  { id: "categories", label: "Categories", Icon: LayoutGrid },
   { id: "search", label: "Search", Icon: Search },
   { id: "orders", label: "Orders", Icon: ListOrdered },
   { id: "account", label: "Account", Icon: User },
@@ -46,30 +48,19 @@ function isOrderDetail(pathname: string): boolean {
   return /^\/orders\/[^/]+/.test(pathname)
 }
 
-function activeIdForPath(
-  pathname: string,
-  selectedStoreId: string | null,
-): NavItem["id"] | null {
+function activeIdForPath(pathname: string): NavItem["id"] | null {
   if (pathname === "/" || pathname === "/stores" || pathname.startsWith("/stores/"))
     return "home"
-  if (pathname.startsWith("/categories")) return "categories"
   if (pathname.startsWith("/search")) return "search"
   if (pathname.startsWith("/orders")) return "orders"
   if (pathname.startsWith("/account")) return "account"
-  // Suppress active state on misc auth pages so no tab pretends to be selected.
-  void selectedStoreId
   return null
 }
 
-function hrefFor(item: NavItem["id"], selectedStoreId: string | null): string {
+function hrefFor(item: NavItem["id"]): string {
   switch (item) {
     case "home":
       return "/stores"
-    case "categories":
-      // DP-2 builds /categories properly (cross-store). For DP-1, route to the
-      // primary store's category drilldown when one is selected; fall back
-      // to home so the tab is never broken.
-      return selectedStoreId !== null ? `/stores/${selectedStoreId}` : "/stores"
     case "search":
       return "/search"
     case "orders":
@@ -81,13 +72,12 @@ function hrefFor(item: NavItem["id"], selectedStoreId: string | null): string {
 
 export function BottomNav() {
   const pathname = usePathname() ?? ""
-  const selectedStoreId = useSelectedStore((s) => s.storeId)
 
   const hidden =
     HIDE_ON_PATHS.some((p) => pathname.startsWith(p)) || isOrderDetail(pathname)
   if (hidden) return null
 
-  const activeId = activeIdForPath(pathname, selectedStoreId)
+  const activeId = activeIdForPath(pathname)
 
   return (
     <nav
@@ -99,13 +89,13 @@ export function BottomNav() {
         "pb-[env(safe-area-inset-bottom)]",
       )}
     >
-      <ul className="max-w-md mx-auto grid grid-cols-5">
+      <ul className="max-w-md mx-auto grid grid-cols-4">
         {ITEMS.map(({ id, label, Icon }) => {
           const isActive = id === activeId
           return (
             <li key={id} className="flex">
               <Link
-                href={hrefFor(id, selectedStoreId)}
+                href={hrefFor(id)}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex-1 flex flex-col items-center justify-center gap-1 py-2",

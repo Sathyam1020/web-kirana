@@ -23,11 +23,7 @@ import type {
   OrderItemView,
   ProductPublicView,
 } from "@workspace/api-client"
-import {
-  useApi,
-  useAuthStore,
-  useIsAuthenticated,
-} from "@workspace/auth"
+import { useApi, useAuthStore } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -87,7 +83,6 @@ function itemToProduct(
 
 export default function HomePage() {
   const api = useApi()
-  const isAuthed = useIsAuthenticated()
   const authStatus = useAuthStore((s) => s.status)
   const {
     location,
