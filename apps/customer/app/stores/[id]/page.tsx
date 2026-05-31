@@ -35,6 +35,7 @@ import { useState } from "react"
 
 import { DepartmentSections } from "@/components/department-sections"
 import { ProductRail } from "@/components/product-rail"
+import { useFavorites } from "@/lib/favorites"
 import { formatPriceFromPaise } from "@/lib/format"
 import { useSmartBack } from "@/lib/use-smart-back"
 import { cn } from "@workspace/ui/lib/utils"
@@ -50,8 +51,9 @@ export default function StoreDetailPage() {
   const api = useApi()
   const onBack = useSmartBack("/stores")
   const tap = useMotionPreset(springs.tap)
-  // Favorite is visual-only in DP-1/DP-2 — real backend wiring comes later.
-  const [favorited, setFavorited] = useState(false)
+  // Favorites slice (DP-4) — taps persist locally + show in /account/favorites.
+  const favorited = useFavorites((s) => (storeId ? s.has(storeId) : false))
+  const toggleFavorite = useFavorites((s) => s.toggle)
 
   const enabled = typeof storeId === "string" && storeId.length > 0
 
@@ -116,7 +118,7 @@ export default function StoreDetailPage() {
           {store ? (
             <motion.button
               type="button"
-              onClick={() => setFavorited((f) => !f)}
+              onClick={() => toggleFavorite(storeId)}
               whileTap={{ scale: tapScale }}
               transition={tap}
               aria-label={

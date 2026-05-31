@@ -253,6 +253,48 @@ export function EmptyCartIllustration({ className, label }: IllustrationProps) {
   )
 }
 
+/** Sign-in invitation — abstract person silhouettes around a shopping bag. */
+export function SignInIllustration({ className, label }: IllustrationProps) {
+  return (
+    <Frame className={className} label={label ?? "Sign in to get started"}>
+      <ellipse cx="120" cy="158" rx="74" ry="6" fill="var(--surface-soft)" />
+      {/* Soft halo */}
+      <circle cx="120" cy="92" r="56" fill="var(--primary)" opacity="0.06" />
+      {/* Two-person silhouettes flanking the bag */}
+      <g fill="var(--muted-foreground)" opacity="0.45">
+        {/* Left person */}
+        <circle cx="60" cy="100" r="8" />
+        <path d="M48 138c0-10 5-16 12-16s12 6 12 16v8H48z" />
+        {/* Right person */}
+        <circle cx="180" cy="100" r="8" />
+        <path d="M168 138c0-10 5-16 12-16s12 6 12 16v8h-24z" />
+      </g>
+      {/* Shopping bag center, Rausch tinted */}
+      <path
+        d="M92 80h56l-6 60a8 8 0 0 1-8 6h-28a8 8 0 0 1-8-6z"
+        fill="var(--primary)"
+        opacity="0.12"
+      />
+      <path
+        d="M92 80h56l-6 60a8 8 0 0 1-8 6h-28a8 8 0 0 1-8-6z"
+        fill="none"
+        stroke="var(--primary)"
+        strokeWidth="2.5"
+      />
+      <path
+        d="M108 80v-8a12 12 0 0 1 24 0v0"
+        fill="none"
+        stroke="var(--primary)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      {/* Sparkles */}
+      <Sparkle x={68} y={64} size={8} />
+      <Sparkle x={172} y={70} size={6} />
+    </Frame>
+  )
+}
+
 /** Delivered package with checkmark — "your order made it!". */
 export function DeliveredIllustration({ className, label }: IllustrationProps) {
   return (

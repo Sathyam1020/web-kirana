@@ -23,10 +23,10 @@ import { ProgressiveImage } from "@workspace/ui/components/image"
 import { Clock, Star, Store as StoreIcon, Timer } from "lucide-react"
 import { motion } from "motion/react"
 import Link from "next/link"
-import { useState } from "react"
 
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
+import { useFavorites } from "@/lib/favorites"
 import { formatDistance, formatEta } from "@/lib/format"
 
 interface PrimaryStoreHeroProps {
@@ -41,8 +41,10 @@ export function PrimaryStoreHero({
   onChangeStore,
 }: PrimaryStoreHeroProps) {
   const tap = useMotionPreset(springs.tap)
-  // Visual-only favorite toggle in DP-1. Real backend wiring comes later.
-  const [favorited, setFavorited] = useState(false)
+  // Favorites now live in the local zustand slice — taps persist + flow
+  // into the /account/favorites page (DP-4).
+  const favorited = useFavorites((s) => s.has(store.id))
+  const toggleFavorite = useFavorites((s) => s.toggle)
 
   return (
     <section
@@ -76,7 +78,7 @@ export function PrimaryStoreHero({
             <div className="flex items-center gap-2 shrink-0">
               <motion.button
                 type="button"
-                onClick={() => setFavorited((f) => !f)}
+                onClick={() => toggleFavorite(store.id)}
                 whileTap={{ scale: tapScale }}
                 transition={tap}
                 aria-label={
