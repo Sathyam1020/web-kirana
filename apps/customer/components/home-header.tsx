@@ -17,7 +17,7 @@
 import { useApi, useAuthStore, useIsAuthenticated } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { useQuery } from "@tanstack/react-query"
-import { Bell, User } from "lucide-react"
+import { Bell } from "lucide-react"
 import Link from "next/link"
 import { useEffect } from "react"
 
@@ -72,6 +72,10 @@ export function HomeHeader() {
             className="flex-1 min-w-0"
           />
           <div className="flex items-center gap-1 shrink-0">
+            {/* Account access is owned by the bottom-nav Account tab —
+                duplicating it in the header was noise. Only the bell stays
+                here for the active-order count cue; the bottom nav covers
+                the rest. */}
             {isAuthed ? (
               <Link
                 href="/orders"
@@ -91,15 +95,6 @@ export function HomeHeader() {
                     {activeCount}
                   </span>
                 ) : null}
-              </Link>
-            ) : null}
-            {isAuthed ? (
-              <Link
-                href="/account"
-                aria-label="Account"
-                className="inline-flex size-10 items-center justify-center rounded-full hover:bg-surface-soft transition-colors"
-              >
-                <User className="size-5" aria-hidden />
               </Link>
             ) : (
               <Link href="/login">

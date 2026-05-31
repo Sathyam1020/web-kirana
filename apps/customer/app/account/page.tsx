@@ -23,6 +23,7 @@ import {
   ListOrdered,
   LogOut,
   MapPin,
+  Palette,
   Star,
   Tag,
 } from "lucide-react"
@@ -116,6 +117,12 @@ function SignedIn() {
             label="Notifications"
             subtitle="Push, WhatsApp, Email"
             href="/account/notifications"
+          />
+          <AccountMenuRow
+            icon={<Palette className="size-4" />}
+            label="Appearance"
+            subtitle="Light, dark, or system theme"
+            href="/account/appearance"
           />
           <AccountMenuRow
             icon={<Tag className="size-4" />}
