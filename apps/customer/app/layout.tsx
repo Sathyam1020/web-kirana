@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import Script from "next/script"
 
 import "@workspace/ui/globals.css"
+import { BackToTop } from "@/components/back-to-top"
 import { BottomNav } from "@/components/bottom-nav"
 import { CustomerBottomBar } from "@/components/customer-bottom-bar"
 import { Providers } from "@/components/providers"
@@ -59,6 +60,7 @@ export default async function RootLayout({
         </Script>
         <Providers ssrAuthed={ssrAuthed}>
           {children}
+          <BackToTop />
           <CustomerBottomBar />
           <BottomNav />
         </Providers>

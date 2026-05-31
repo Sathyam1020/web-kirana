@@ -112,7 +112,7 @@ export function ChooseStoreSheet({
 
           {/* Filter chips */}
           <div
-            className="-mx-4 px-4 overflow-x-auto scrollbar-thin"
+            className="-mx-4 px-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             role="tablist"
             aria-label="Filter stores"
           >

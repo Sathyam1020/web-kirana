@@ -383,7 +383,7 @@ function HomeSkeleton() {
         <Skeleton className="h-5 w-1/2" />
         <div className="flex gap-2 overflow-hidden">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="w-[7rem] sm:w-[8.5rem] shrink-0 space-y-2">
+            <div key={i} className="w-[8.5rem] sm:w-[10rem] shrink-0 space-y-2">
               <Skeleton className="aspect-square w-full rounded-[var(--radius-md)]" />
               <Skeleton className="h-3 w-3/4" />
               <Skeleton className="h-3 w-1/2" />

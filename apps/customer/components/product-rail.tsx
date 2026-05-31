@@ -20,11 +20,12 @@ import { ProductCardCompact } from "@/components/product-card-compact"
 import { cn } from "@workspace/ui/lib/utils"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
-// Width sized so exactly 3 cards fit in the home content column on a
-// 375–390px viewport with the standard px-4 padding, leaving a sliver of
-// a 4th visible as a "scroll me" affordance. Equivalent on Tailwind:
-// (100vw - 2*16 - 2*8) / 3 ≈ 105px, then +6px for safety.
-const CARD_WIDTH_CLASS = "w-[7rem] sm:w-[8.5rem]"
+// Now that price + ADD chip sit on the same row below the image, the
+// card needs more horizontal room. ~2.5 cards visible on a 375–390px
+// viewport with a sliver of a 3rd as the scroll affordance — the same
+// pattern Blinkit/Zepto use. Inner content area lands at ~120-140px,
+// enough for "₹999" + an "ADD" chip side-by-side.
+const CARD_WIDTH_CLASS = "w-[8.5rem] sm:w-[10rem]"
 
 interface ProductRailProps {
   /**
@@ -79,7 +80,7 @@ export function ProductRail({
       ) : null}
 
       <div
-        className="-mx-4 px-4 overflow-x-auto scrollbar-thin"
+        className="-mx-4 px-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ scrollSnapType: "x mandatory" }}
       >
         <div className="flex gap-2">

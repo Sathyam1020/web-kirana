@@ -75,7 +75,7 @@ export function CouponCarousel({
     >
       <Header />
       <div
-        className="-mx-4 scrollbar-thin overflow-x-auto px-4"
+        className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ scrollSnapType: "x mandatory" }}
       >
         <div className="flex gap-3">
@@ -142,10 +142,15 @@ function CouponCard({
         // more present than the previous 5% wash so the card actually reads
         // as a "deal card", not a faint surface.
         "overflow-hidden rounded-[var(--radius-md)] border border-primary/15",
-        "bg-gradient-to-br from-primary/12 via-primary/6 to-primary/3"
+        "bg-gradient-to-br from-primary/12 via-primary/6 to-primary/3",
+        // Lock to a uniform card height so the rail doesn't lurch when one
+        // coupon has a longer subline than another. h-36 fits 2-line subline
+        // + expiry + code row comfortably; cards with less content just
+        // breathe more.
+        "h-36",
       )}
     >
-      <div className="flex">
+      <div className="flex h-full">
         {/* Left badge column — icon stacked over scope label, dashed cut.
             Slightly stronger tint than the body for the "ticket stub" feel. */}
         <div className="flex w-16 shrink-0 flex-col items-center justify-center gap-1.5 border-r border-dashed border-primary/30 bg-primary/5 py-5">
@@ -158,8 +163,9 @@ function CouponCard({
           </span>
         </div>
 
-        {/* Body */}
-        <div className="flex min-w-0 flex-1 flex-col gap-2.5 px-4 py-3.5">
+        {/* Body — flex-1 lets it fill the locked h-36, justify-between
+            keeps headline+meta block at top and code+copy row at bottom. */}
+        <div className="flex min-w-0 flex-1 flex-col justify-between px-4 py-3.5">
           <div>
             <p className="text-xl leading-tight font-bold text-foreground tabular-nums">
               {headline}
@@ -173,7 +179,7 @@ function CouponCard({
               </p>
             ) : null}
           </div>
-          <div className="flex items-center gap-2 pt-0.5">
+          <div className="flex items-center gap-2 pt-2">
             <span className="inline-flex items-center rounded-[var(--radius-sm)] bg-foreground/10 px-2.5 py-1 text-[12px] font-semibold text-foreground tabular-nums">
               {coupon.code}
             </span>
