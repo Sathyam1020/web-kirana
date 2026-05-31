@@ -216,6 +216,75 @@ export function NoCouponsIllustration({ className, label }: IllustrationProps) {
   )
 }
 
+/** Empty cart with a soft halo — "your cart is empty, go shop". */
+export function EmptyCartIllustration({ className, label }: IllustrationProps) {
+  return (
+    <Frame className={className} label={label ?? "Empty cart"}>
+      <ellipse cx="120" cy="160" rx="60" ry="5" fill="var(--surface-soft)" />
+      <circle cx="120" cy="100" r="56" fill="var(--primary)" opacity="0.06" />
+      {/* Cart body */}
+      <path
+        d="M68 86h96l-10 56a8 8 0 0 1-8 6H86a8 8 0 0 1-8-6z"
+        fill="var(--card)"
+        stroke="var(--primary)"
+        strokeWidth="2.5"
+      />
+      {/* Cart top rail */}
+      <path
+        d="M60 78h16l4 8h84"
+        fill="none"
+        stroke="var(--primary)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Wheels */}
+      <circle cx="92" cy="160" r="6" fill="var(--card)" stroke="var(--primary)" strokeWidth="2.5" />
+      <circle cx="148" cy="160" r="6" fill="var(--card)" stroke="var(--primary)" strokeWidth="2.5" />
+      {/* Plus sparkle inside — "go add something" */}
+      <path
+        d="M120 104v24M108 116h24"
+        stroke="var(--primary)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        opacity="0.5"
+      />
+    </Frame>
+  )
+}
+
+/** Delivered package with checkmark — "your order made it!". */
+export function DeliveredIllustration({ className, label }: IllustrationProps) {
+  return (
+    <Frame className={className} label={label ?? "Delivered"}>
+      <ellipse cx="120" cy="160" rx="64" ry="6" fill="var(--surface-soft)" />
+      {/* Box */}
+      <path
+        d="M76 88l44-20 44 20v44l-44 20-44-20z"
+        fill="var(--card)"
+        stroke="var(--success)"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+      />
+      <path d="M76 88l44 20 44-20" fill="none" stroke="var(--success)" strokeWidth="2.5" />
+      <path d="M120 108v44" stroke="var(--success)" strokeWidth="2.5" />
+      {/* Tape */}
+      <path d="M76 80l44-20" stroke="var(--success)" strokeWidth="2" opacity="0.5" />
+      <path d="M164 80l-44-20" stroke="var(--success)" strokeWidth="2" opacity="0.5" />
+      {/* Big checkmark badge */}
+      <circle cx="170" cy="62" r="16" fill="var(--success)" />
+      <path
+        d="M163 62l5 5 9-10"
+        fill="none"
+        stroke="var(--success-foreground)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Frame>
+  )
+}
+
 /** Empty produce crate — "this category is empty here". */
 export function EmptyCategoryIllustration({ className, label }: IllustrationProps) {
   return (
