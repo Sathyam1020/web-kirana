@@ -65,6 +65,7 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 11    | Cron jobs — auto-cancel PLACED + WhatsApp retry + availability reset| ✅ done        | `afb8304` |
 | 12    | ~~Cloudinary signed uploads~~ — stale duplicate of 6.7 (done)      | ✅ n/a         | `150f0db` |
 | 13    | Hardening — README + .env fix + full-suite pass + prod builds      | ✅ done        | `aadd3c8` |
+| DP-0  | Design system + motion foundation (tokens, motion lib, primitives) | ✅ done        | `a06a9aa` |
 
 **Frontends (all three built):**
 - `apps/customer` PWA — discovery, cart, COD checkout + success celebration,
