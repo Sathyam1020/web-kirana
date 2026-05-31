@@ -47,6 +47,15 @@
     --color-destructive: var(--destructive);
     --color-destructive-foreground: var(--destructive-foreground);
     --color-destructive-hover: var(--destructive-hover);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-success-soft: var(--success-soft);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-warning-soft: var(--warning-soft);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-info-soft: var(--info-soft);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -146,6 +155,20 @@
     --destructive-hover: oklch(0.46 0.21 30);  /* #b32505 */
     --destructive-foreground: oklch(1 0 0);
 
+    /* Semantic states. Muted to match Airbnb's restraint — never neon.
+       Each has a `-soft` companion for banner backgrounds (10–15% tint). */
+    --success: oklch(0.55 0.13 160);           /* #2e8a5d — muted forest */
+    --success-foreground: oklch(1 0 0);
+    --success-soft: oklch(0.95 0.04 160);      /* #e6f3ec — banner bg */
+
+    --warning: oklch(0.74 0.16 75);            /* #d99027 — warm amber */
+    --warning-foreground: oklch(0.24 0 0);     /* ink on amber */
+    --warning-soft: oklch(0.96 0.05 80);       /* #f8efd9 — banner bg */
+
+    --info: oklch(0.62 0.13 230);              /* #4a86b5 — subdued blue */
+    --info-foreground: oklch(1 0 0);
+    --info-soft: oklch(0.95 0.03 230);         /* #e6eef5 — banner bg */
+
     /* Hairlines. Three tones for different separator weights. */
     --border: oklch(0.88 0 0);                 /* #dddddd — default 1px hairline */
     --border-soft: oklch(0.92 0 0);            /* #ebebeb — long-scroll editorial */
@@ -217,6 +240,21 @@
     --destructive: oklch(0.65 0.22 30);
     --destructive-hover: oklch(0.58 0.23 30);
     --destructive-foreground: oklch(1 0 0);
+
+    /* Semantic states — dark mode mirrors. Slightly lifted lightness so
+       they remain legible on the near-black canvas. Soft backgrounds use
+       low-alpha overlays of the base hue. */
+    --success: oklch(0.65 0.15 160);
+    --success-foreground: oklch(0.10 0 0);
+    --success-soft: oklch(0.55 0.12 160 / 18%);
+
+    --warning: oklch(0.80 0.18 75);
+    --warning-foreground: oklch(0.18 0 0);
+    --warning-soft: oklch(0.74 0.16 75 / 18%);
+
+    --info: oklch(0.70 0.15 230);
+    --info-foreground: oklch(0.10 0 0);
+    --info-soft: oklch(0.62 0.13 230 / 18%);
 
     --border: oklch(1 0 0 / 12%);
     --border-soft: oklch(1 0 0 / 8%);

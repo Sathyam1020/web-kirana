@@ -65,6 +65,12 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | 11    | Cron jobs — auto-cancel PLACED + WhatsApp retry + availability reset| ✅ done        | `afb8304` |
 | 12    | ~~Cloudinary signed uploads~~ — stale duplicate of 6.7 (done)      | ✅ n/a         | `150f0db` |
 | 13    | Hardening — README + .env fix + full-suite pass + prod builds      | ✅ done        | `aadd3c8` |
+| DP-0  | Design system + motion foundation (tokens, motion lib, primitives) | ✅ done        | `a06a9aa` |
+| DP-1  | Customer home rebuild (store-first; bottom nav; coupon carousel)   | ✅ done        | `b5fb81e` |
+| DP-2.A| Store detail refresh + drop Categories tab (4-tab nav)             | ✅ done        | `5d53144` |
+| DP-3  | Cart / Checkout / Orders / Order detail rewrites + cancel rule fix | ✅ done        | `2f1bd4f` |
+| DP-4  | Account — 12 frames, /me/stats, favorites slice, expired coupons   | ✅ done        | `ccc2250` |
+| DP-5  | Motion polish — bounce, connector draw, offline banner, route fades| ✅ done        | `9018c44` |
 
 **Frontends (all three built):**
 - `apps/customer` PWA — discovery, cart, COD checkout + success celebration,

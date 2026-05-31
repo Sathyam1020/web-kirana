@@ -6,6 +6,7 @@ import * as service from "./coupons.service.js"
 import type {
   AdminCreateCouponBody,
   CouponIdParam,
+  ListActiveCouponsQuery,
   ListCouponsQuery,
   OwnerCreateCouponBody,
   PreviewCouponBody,
@@ -99,6 +100,14 @@ export async function ownerSoftDelete(req: Request, res: Response): Promise<void
   const { id } = getValidated(req).params as CouponIdParam
   await service.ownerSoftDelete(storeId, id)
   sendNoContent(res)
+}
+
+// --- Public listing (DP-1) ---------------------------------------------
+
+export async function listActive(req: Request, res: Response): Promise<void> {
+  const { storeId, status } = getValidated(req).query as ListActiveCouponsQuery
+  const items = await service.listActivePublic(storeId, status)
+  sendData(res, { items })
 }
 
 // --- Customer preview --------------------------------------------------

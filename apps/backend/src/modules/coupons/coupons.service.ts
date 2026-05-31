@@ -279,6 +279,93 @@ export async function ownerSoftDelete(storeId: string, id: string): Promise<void
   }
 }
 
+// --- Public listing (DP-1) ---------------------------------------------
+
+/**
+ * Active-coupon view exposed to the customer home — slimmer than CouponView
+ * (no internal createdById / usageCount / perUserLimit fields).
+ */
+export interface PublicCouponView {
+  id: string
+  code: string
+  type: CouponType
+  value: number
+  scope: CouponScope
+  /** null for GLOBAL; the owning store's id for STORE-scoped coupons. */
+  storeId: string | null
+  maxDiscountPaise: number | null
+  minOrderPaise: number
+  validUntil: Date | null
+}
+
+const PUBLIC_SELECT = {
+  id: true,
+  code: true,
+  type: true,
+  value: true,
+  scope: true,
+  storeId: true,
+  maxDiscountPaise: true,
+  minOrderPaise: true,
+  validUntil: true,
+} as const
+
+/**
+ * List coupons for the customer-facing carousel + offers page.
+ *
+ * Returns combined GLOBAL (admin) + STORE (owner) coupons when `storeId`
+ * is provided; GLOBAL only otherwise.
+ *
+ *   - `status='active'` (default): `validFrom <= now AND (validUntil
+ *     IS NULL OR validUntil > now)`. Sorted GLOBAL-first then by
+ *     expiring-soonest.
+ *   - `status='expired'`: `validUntil <= now`. Sorted by most-recently-
+ *     expired first (descending) so the freshest expiries surface
+ *     first on the offers screen's archive section.
+ *
+ * `isActive=true` always required — soft-deleted coupons stay out of
+ * either list.
+ */
+export async function listActivePublic(
+  storeId: string | undefined,
+  status: "active" | "expired" = "active",
+): Promise<PublicCouponView[]> {
+  const now = new Date()
+
+  const validityFilter =
+    status === "active"
+      ? {
+          isActive: true,
+          validFrom: { lte: now },
+          OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        }
+      : {
+          isActive: true,
+          validUntil: { not: null, lte: now },
+        }
+
+  const scopeFilter =
+    storeId !== undefined
+      ? {
+          OR: [
+            { scope: CouponScope.GLOBAL },
+            { scope: CouponScope.STORE, storeId },
+          ],
+        }
+      : { scope: CouponScope.GLOBAL }
+
+  const rows = await prisma.coupon.findMany({
+    where: { AND: [validityFilter, scopeFilter] },
+    select: PUBLIC_SELECT,
+    orderBy:
+      status === "active"
+        ? [{ scope: "asc" }, { validUntil: "asc" }, { createdAt: "desc" }]
+        : [{ validUntil: "desc" }, { createdAt: "desc" }],
+    take: 30,
+  })
+  return rows
+}
+
 // --- Customer preview --------------------------------------------------
 
 /**

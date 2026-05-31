@@ -157,3 +157,24 @@ export const previewCouponBodySchema = z.strictObject({
 export type PreviewCouponBody = z.infer<typeof previewCouponBodySchema>
 
 export { CouponScope, CouponType }
+
+// --- Public listing (Phase DP-1) ---------------------------------------
+
+/**
+ * Public listing of active coupons for the home screen carousel. Returns
+ * GLOBAL (admin) + STORE (owner) coupons combined when `storeId` is set;
+ * GLOBAL only when omitted. Anonymous-accessible — apply-time validation
+ * + per-user limits still gate the actual redemption.
+ */
+export const listActiveCouponsQuerySchema = z.strictObject({
+  storeId: z.string().min(1).max(40).optional(),
+  /**
+   * Lifecycle window of coupons to return:
+   *  - `active` (default) — `validFrom <= now AND validUntil > now`
+   *  - `expired` — `validUntil <= now`
+   * Both honor `isActive=true`. Used by the customer account's Offers
+   * page to render the Active and Expired sections from the same endpoint.
+   */
+  status: z.enum(["active", "expired"]).optional().default("active"),
+})
+export type ListActiveCouponsQuery = z.infer<typeof listActiveCouponsQuerySchema>

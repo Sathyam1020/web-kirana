@@ -14,6 +14,7 @@ import { adminRouter } from "./modules/admin/admin.routes.js"
 import { categoriesPublicRouter } from "./modules/categories/categories.routes.js"
 import { couponsPublicRouter } from "./modules/coupons/coupons.routes.js"
 import { departmentsPublicRouter } from "./modules/departments/departments.routes.js"
+import { meRouter } from "./modules/me/me.routes.js"
 import { ordersRouter } from "./modules/orders/orders.routes.js"
 import { pushRouter } from "./modules/push/push.routes.js"
 import { realtimeRouter } from "./modules/realtime/realtime.routes.js"
@@ -87,6 +88,7 @@ export function buildApp(): Express {
   v1.use("/categories", categoriesPublicRouter)
   v1.use("/coupons", couponsPublicRouter)
   v1.use("/departments", departmentsPublicRouter)
+  v1.use("/me", meRouter)
   v1.use("/orders", ordersRouter)
   v1.use("/push", pushRouter)
   v1.use("/realtime", realtimeRouter)

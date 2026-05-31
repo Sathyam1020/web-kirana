@@ -3,7 +3,7 @@
 import { AuthHintProvider, AuthProvider } from "@workspace/auth"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
-import { Toaster } from "sonner"
+import { Toaster } from "@workspace/ui/components/toaster"
 import { useState } from "react"
 import { env } from "@/lib/env"
 import { CartSwitchDialog } from "@/components/cart-switch-dialog"
@@ -43,12 +43,7 @@ export function Providers({
             {children}
             <RealtimeBridge />
             <CartSwitchDialog />
-            <Toaster
-              position="top-center"
-              richColors
-              closeButton
-              toastOptions={{ className: "rounded-xl" }}
-            />
+            <Toaster />
           </QueryClientProvider>
         </AuthProvider>
       </AuthHintProvider>

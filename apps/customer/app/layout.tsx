@@ -3,8 +3,12 @@ import { Inter } from "next/font/google"
 import Script from "next/script"
 
 import "@workspace/ui/globals.css"
+import { BackToTop } from "@/components/back-to-top"
+import { BottomNav } from "@/components/bottom-nav"
 import { CustomerBottomBar } from "@/components/customer-bottom-bar"
+import { OfflineBanner } from "@/components/offline-banner"
 import { Providers } from "@/components/providers"
+import { RouteTransition } from "@/components/route-transition"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import { readAuthCookieHint } from "@/lib/server-auth"
 import { cn } from "@workspace/ui/lib/utils"
@@ -57,8 +61,11 @@ export default async function RootLayout({
           {PWA_INSTALL_CAPTURE}
         </Script>
         <Providers ssrAuthed={ssrAuthed}>
-          {children}
+          <OfflineBanner />
+          <RouteTransition>{children}</RouteTransition>
+          <BackToTop />
           <CustomerBottomBar />
+          <BottomNav />
         </Providers>
         <ServiceWorkerRegister />
       </body>

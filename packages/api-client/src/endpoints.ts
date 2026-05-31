@@ -17,8 +17,10 @@ import type {
   OrderView,
   OwnerProductsListResult,
   PendingOwner,
+  MeStats,
   PreviewResult,
   ProductOwnerView,
+  PublicCouponsResult,
   SearchResult,
   SessionResult,
   StoreBanner,
@@ -147,6 +149,7 @@ export interface PlaceOrderBody {
 }
 
 export interface OrdersQuery {
+  storeId?: string
   cursor?: string
   limit?: number
 }
@@ -610,6 +613,11 @@ export function buildApi(http: AxiosInstance) {
         unwrap<{ ticket: string; ttlMs: number }>(http.post("/v1/realtime/ticket")),
     },
 
+    me: {
+      // DP-4 — lifetime order + savings stats for the account hero row.
+      stats: () => unwrap<MeStats>(http.get("/v1/me/stats")),
+    },
+
     push: {
       // Phase 10 — Web Push subscriptions. Body matches PushSubscription.toJSON().
       subscribe: (sub: {
@@ -700,6 +708,16 @@ export function buildApi(http: AxiosInstance) {
     },
 
     coupons: {
+      // DP-1 — anonymous-accessible carousel data. Returns active GLOBAL
+      // + active STORE coupons for the given storeId; GLOBAL only when
+      // omitted. `status="expired"` flips to the archive list for the
+      // account Offers page (DP-4).
+      active: (
+        q: { storeId?: string; status?: "active" | "expired" } = {},
+      ) =>
+        unwrap<PublicCouponsResult>(
+          http.get("/v1/coupons/active", { params: serializeQuery(q) }),
+        ),
       // preview returns the flat PreviewResult.
       preview: (body: PreviewCouponBody) =>
         unwrap<PreviewResult>(http.post("/v1/coupons/preview", body)),

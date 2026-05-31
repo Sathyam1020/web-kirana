@@ -17,14 +17,18 @@ export interface CartItem {
 export interface StoreSwitchPrompt {
   pendingProduct: ProductPublicView
   pendingStoreId: string
+  pendingStoreName: string | null
 }
 
 interface CartState {
   storeId: string | null
+  /** Snapshot of the store's display name at the time items were first added,
+   *  so the cart pill can render "Hampi Kirani" without a second store fetch. */
+  storeName: string | null
   items: Record<string, CartItem>
   /** Set when `inc` was blocked by single-store guard. UI shows a confirm dialog. */
   pendingSwitch: StoreSwitchPrompt | null
-  inc: (product: ProductPublicView, storeId: string) => void
+  inc: (product: ProductPublicView, storeId: string, storeName?: string) => void
   incById: (productId: string) => void
   dec: (productId: string) => void
   remove: (productId: string) => void
@@ -61,17 +65,28 @@ export const useCart = create<CartState>()(
   persist(
     (set, get) => ({
       storeId: null,
+      storeName: null,
       items: {},
       pendingSwitch: null,
-      inc: (product, storeId) => {
+      inc: (product, storeId, storeName) => {
         const state = get()
         if (state.storeId !== null && state.storeId !== storeId) {
           set({
-            pendingSwitch: { pendingProduct: product, pendingStoreId: storeId },
+            pendingSwitch: {
+              pendingProduct: product,
+              pendingStoreId: storeId,
+              pendingStoreName: storeName ?? null,
+            },
           })
           return
         }
-        set({ items: addOne(state.items, product), storeId })
+        set({
+          items: addOne(state.items, product),
+          storeId,
+          // Snapshot the name on the first add at this store so we don't
+          // overwrite a known name with an undefined later call.
+          storeName: state.storeName ?? storeName ?? null,
+        })
       },
       incById: (productId) =>
         set((prev) => {
@@ -93,7 +108,7 @@ export const useCart = create<CartState>()(
           else next[productId] = { ...existing, quantity: existing.quantity - 1 }
           const cleared = Object.keys(next).length === 0
           return cleared
-            ? { items: {}, storeId: null }
+            ? { items: {}, storeId: null, storeName: null }
             : { items: next }
         }),
       remove: (productId) =>
@@ -102,10 +117,10 @@ export const useCart = create<CartState>()(
           delete next[productId]
           const cleared = Object.keys(next).length === 0
           return cleared
-            ? { items: {}, storeId: null }
+            ? { items: {}, storeId: null, storeName: null }
             : { items: next }
         }),
-      clear: () => set({ items: {}, storeId: null }),
+      clear: () => set({ items: {}, storeId: null, storeName: null }),
       cancelSwitch: () => set({ pendingSwitch: null }),
       confirmSwitch: () =>
         set((prev) => {
@@ -113,6 +128,7 @@ export const useCart = create<CartState>()(
           return {
             items: addOne({}, prev.pendingSwitch.pendingProduct),
             storeId: prev.pendingSwitch.pendingStoreId,
+            storeName: prev.pendingSwitch.pendingStoreName,
             pendingSwitch: null,
           }
         }),
@@ -131,6 +147,7 @@ export const useCart = create<CartState>()(
       // Don't persist the transient prompt state.
       partialize: (state) => ({
         storeId: state.storeId,
+        storeName: state.storeName,
         items: state.items,
       }),
     },
