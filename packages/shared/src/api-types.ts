@@ -276,6 +276,16 @@ export interface StoreBanner {
   createdAt: string
 }
 
+/**
+ * Trust signals for the home hero. Each value is `null` when the store hasn't
+ * accumulated enough sample size — the FE hides the corresponding pill.
+ */
+export interface StoreTrustStats {
+  ordersThisMonth: number
+  avgDeliveryMinutes: number | null
+  onTimePercent: number | null
+}
+
 export interface StoreDetailResult {
   store: StorePublicView
   departments: StoreDetailDepartmentView[]
@@ -284,6 +294,8 @@ export interface StoreDetailResult {
   totalCategoryCount: number
   // Phase 6.8 — null when the store has no active banner.
   activeBanner: StoreActiveBanner | null
+  // DP-1 — trust stats for the customer-home hero pills.
+  stats: StoreTrustStats
 }
 
 export interface StoreCategorySectionsResult {
@@ -469,6 +481,27 @@ export interface CouponListResult {
   items: Coupon[]
   nextCursor: string | null
   hasMore: boolean
+}
+
+/**
+ * Slim public view of a coupon for the home carousel — omits internal
+ * fields (createdById, usageCount, perUserLimit, totalUsageLimit) that
+ * customers don't need and shouldn't see.
+ */
+export interface PublicCoupon {
+  id: string
+  code: string
+  type: CouponType
+  value: number
+  scope: CouponScope
+  storeId: string | null
+  maxDiscountPaise: number | null
+  minOrderPaise: number
+  validUntil: string | null
+}
+
+export interface PublicCouponsResult {
+  items: PublicCoupon[]
 }
 
 export type PreviewFailureReason =
