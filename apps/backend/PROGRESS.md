@@ -69,7 +69,8 @@ user shared a live URL in chat; ask them to rotate after the build is done).
 | DP-1  | Customer home rebuild (store-first; bottom nav; coupon carousel)   | ✅ done        | `b5fb81e` |
 | DP-2.A| Store detail refresh + drop Categories tab (4-tab nav)             | ✅ done        | `5d53144` |
 | DP-3  | Cart / Checkout / Orders / Order detail rewrites + cancel rule fix | ✅ done        | `2f1bd4f` |
-| DP-4  | Account — 12 frames, /me/stats, favorites slice, expired coupons   | ✅ done        |           |
+| DP-4  | Account — 12 frames, /me/stats, favorites slice, expired coupons   | ✅ done        | `ccc2250` |
+| DP-5  | Motion polish — bounce, connector draw, offline banner, route fades| ✅ done        | `9018c44` |
 
 **Frontends (all three built):**
 - `apps/customer` PWA — discovery, cart, COD checkout + success celebration,
