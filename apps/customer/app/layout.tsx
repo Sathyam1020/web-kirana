@@ -3,6 +3,7 @@ import { Inter } from "next/font/google"
 import Script from "next/script"
 
 import "@workspace/ui/globals.css"
+import { BottomNav } from "@/components/bottom-nav"
 import { CustomerBottomBar } from "@/components/customer-bottom-bar"
 import { Providers } from "@/components/providers"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
@@ -59,6 +60,7 @@ export default async function RootLayout({
         <Providers ssrAuthed={ssrAuthed}>
           {children}
           <CustomerBottomBar />
+          <BottomNav />
         </Providers>
         <ServiceWorkerRegister />
       </body>

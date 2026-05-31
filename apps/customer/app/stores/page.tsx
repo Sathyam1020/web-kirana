@@ -1,34 +1,106 @@
 "use client"
 
-import { useApi, useAuthStore, useIsAuthenticated } from "@workspace/auth"
+/**
+ * Customer home — store-first layout (DP-1).
+ *
+ * Order of sections (mockup-locked):
+ *   1. Header (deliver-to + bell + account + search)
+ *   2. Primary store hero (with trust stats + favorite + change)
+ *   3. Shop by category at {store} (4-col grid)
+ *   4. Buy again from {store} (reorder pill + tiles; opens BuyAgainSheet)
+ *   5. Featured at {store} (horizontal compact-tile rail)
+ *   6. Offers for you (live coupons: admin GLOBAL + this store's STORE)
+ *   7. Other nearby stores (vertical rows)
+ *
+ * Data sources:
+ *   - /v1/stores/nearby           — all nearby stores; first-load drives auto-pick
+ *   - /v1/stores/:primary         — departments, featuredProducts, banner, stats
+ *   - /v1/orders?storeId=primary  — Buy again (authed only)
+ *   - /v1/coupons/active?storeId  — coupon carousel (anonymous OK)
+ */
+
+import type {
+  OrderItemView,
+  ProductPublicView,
+} from "@workspace/api-client"
+import {
+  useApi,
+  useAuthStore,
+  useIsAuthenticated,
+} from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
-import { EmptyState } from "@workspace/ui/components/empty-state"
 import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { ThemeToggle } from "@workspace/ui/components/theme-toggle"
 import { useQuery } from "@tanstack/react-query"
 import { motion } from "motion/react"
-import { Search, ShoppingBag, Store, User } from "lucide-react"
-import Link from "next/link"
-import { useEffect } from "react"
-import { BrandMark } from "@/components/brand-mark"
-import { LocationPill } from "@/components/location-pill"
-import { StoreCard } from "@/components/store-card"
+import { useEffect, useState } from "react"
+
+import { BuyAgainRail } from "@/components/buy-again-rail"
+import { CategoryGrid } from "@/components/category-grid"
+import { ChooseStoreSheet } from "@/components/choose-store-sheet"
+import { CouponCarousel } from "@/components/coupon-carousel"
+import { HomeHeader } from "@/components/home-header"
+import {
+  NoLocationIllustration,
+  NoStoresIllustration,
+} from "@/components/illustrations"
+import { OtherStoresRail } from "@/components/other-stores-rail"
+import { PrimaryStoreHero } from "@/components/primary-store-hero"
+import { ProductRail } from "@/components/product-rail"
+import { useCart } from "@/lib/cart"
 import { useUserLocation } from "@/lib/location"
+import { useSelectedStore } from "@/lib/selected-store"
+import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
-export default function StoresPage() {
+// Items whose underlying product was deleted have productId=null and
+// can't be re-added from a snapshot alone.
+type ReorderableItem = OrderItemView & { productId: string }
+
+/** Reconstruct ProductPublicView shape from an order item snapshot. */
+function itemToProduct(
+  item: ReorderableItem,
+  storeId: string,
+): ProductPublicView {
+  return {
+    id: item.productId,
+    storeId,
+    subcategoryId: "",
+    subcategoryName: "",
+    categoryId: "",
+    categoryName: "",
+    departmentId: "",
+    departmentName: "",
+    name: item.nameSnapshot,
+    description: null,
+    pricePaise: item.unitPricePaiseSnapshot,
+    effectivePricePaise: item.unitPricePaiseSnapshot,
+    discountType: null,
+    discountValue: null,
+    discountValidUntil: null,
+    unit: item.unitSnapshot,
+    imageUrl: item.imageUrlSnapshot,
+    isAvailable: true,
+    isFeatured: false,
+    featuredOrder: null,
+  }
+}
+
+export default function HomePage() {
   const api = useApi()
-  // useIsAuthenticated returns the SSR-cookie hint until client hydration
-  // completes, then switches to the live store status — so first paint
-  // matches the eventual UI and there's no Sign in → Account flicker.
   const isAuthed = useIsAuthenticated()
-  const user = useAuthStore((s) => s.user)
-  const { location, status: locStatus, request: requestLocation } = useUserLocation()
+  const authStatus = useAuthStore((s) => s.status)
+  const {
+    location,
+    status: locStatus,
+    request: requestLocation,
+  } = useUserLocation()
 
-  useEffect(() => {
-    if (locStatus === "idle") requestLocation()
-  }, [locStatus, requestLocation])
+  const selected = useSelectedStore()
+  const cart = useCart()
+  const [chooseStoreOpen, setChooseStoreOpen] = useState(false)
+  const fadeIn = useMotionPreset(tweens.fast)
 
+  // --- Nearby query (every store within delivery reach) -------------------
   const nearbyQuery = useQuery({
     queryKey: ["stores", "nearby", location?.lat, location?.lng],
     enabled: location !== null,
@@ -36,9 +108,6 @@ export default function StoresPage() {
       api.stores.nearby({
         lat: location!.lat,
         lng: location!.lng,
-        // Outer cap only — the backend already filters by each store's own
-        // deliveryRadiusMeters. Keep this generous so a store with a wide
-        // delivery reach still appears for a customer at the edge of it.
         radiusMeters: 50_000,
         limit: 30,
         includeClosed: true,
@@ -46,151 +115,282 @@ export default function StoresPage() {
     staleTime: 60_000,
   })
 
+  // Auto-derive primary store on first load; prefer nearest open.
+  useEffect(() => {
+    if (!nearbyQuery.data) return
+    const items = nearbyQuery.data.items
+    if (items.length === 0) return
+    const preferOpen = items.find((s) => s.isOpen) ?? items[0]
+    if (preferOpen) selected.hydrateIfEmpty(preferOpen.id)
+  }, [nearbyQuery.data, selected])
+
+  const allStores = nearbyQuery.data?.items ?? []
+  const primaryStore =
+    selected.storeId !== null
+      ? allStores.find((s) => s.id === selected.storeId)
+      : undefined
+  const otherStores = allStores.filter((s) => s.id !== primaryStore?.id)
+
+  // --- Primary store detail ------------------------------------------------
+  const detailQuery = useQuery({
+    queryKey: ["stores", "detail", primaryStore?.id],
+    enabled: primaryStore !== undefined,
+    queryFn: () => api.stores.detail(primaryStore!.id),
+    staleTime: 60_000,
+  })
+
+  // --- Buy again — last order from this store, filtered server-side -------
+  const ordersQuery = useQuery({
+    queryKey: ["orders", "by-store", primaryStore?.id],
+    enabled: authStatus === "authenticated" && primaryStore !== undefined,
+    queryFn: () => api.orders.list({ storeId: primaryStore!.id, limit: 10 }),
+    staleTime: 30_000,
+  })
+  const lastOrderAtPrimary = ordersQuery.data?.items.find(
+    (o) => o.status === "DELIVERED" || o.status === "OUT_FOR_DELIVERY",
+  ) ?? null
+
+  // Build the compact-tile dataset by deduplicating across the recent
+  // orders' items — buys the user a richer rail than only the very last
+  // order's contents. Falls back to just the last order's items when there's
+  // only one to look at.
+  const recentReorderable: ProductPublicView[] = (() => {
+    if (!ordersQuery.data) return []
+    const seen = new Set<string>()
+    const out: ProductPublicView[] = []
+    for (const order of ordersQuery.data.items) {
+      if (order.store.id !== primaryStore?.id) continue
+      for (const item of order.items) {
+        if (item.productId === null) continue
+        if (seen.has(item.productId)) continue
+        seen.add(item.productId)
+        out.push(itemToProduct(item as ReorderableItem, order.store.id))
+        if (out.length >= 12) return out
+      }
+    }
+    return out
+  })()
+
+  // --- Coupons (anonymous-accessible) -------------------------------------
+  const couponsQuery = useQuery({
+    queryKey: ["coupons", "active", primaryStore?.id],
+    queryFn: () =>
+      api.coupons.active(
+        primaryStore !== undefined ? { storeId: primaryStore.id } : {},
+      ),
+    staleTime: 5 * 60_000,
+  })
+
+  // --- Switch-store flow ---------------------------------------------------
+  function handlePickStore(storeId: string) {
+    if (storeId === selected.storeId) {
+      setChooseStoreOpen(false)
+      return
+    }
+    const cartHasOtherStore =
+      cart.storeId !== null && cart.storeId !== storeId && cart.totalItems() > 0
+    if (cartHasOtherStore) {
+      const ok = window.confirm(
+        "Your cart has items from a different store. Switching will clear your cart. Continue?",
+      )
+      if (!ok) return
+      cart.clear()
+    }
+    selected.select(storeId)
+    setChooseStoreOpen(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+
   return (
-    <div className="min-h-svh bg-background pb-24">
-      <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-border/40">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-4 sm:px-6 lg:px-8 py-3 gap-3">
-          <BrandMark className="text-2xl" />
-          <div className="hidden md:block flex-1 max-w-md">
-            <Link
-              href="/search"
-              className="flex items-center gap-2 h-10 px-4 rounded-full bg-muted text-sm text-muted-foreground hover:bg-surface-strong transition-colors"
-            >
-              <Search className="size-4" />
-              Search products and stores…
-            </Link>
+    <div className="min-h-svh bg-background pb-32">
+      <HomeHeader />
+
+      {/* Quick-commerce is mobile-first by nature. On tablet+, center a
+          phone-shaped column rather than stretching content edge-to-edge
+          (which left rails marooned on the left and stat pills floating
+          alone). max-w-md ≈ 448px keeps the feel of the design intact at
+          every viewport. */}
+      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+        {/* No location → ask for it */}
+        {location === null && locStatus !== "requesting" ? (
+          <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
+            <NoLocationIllustration className="w-44" />
+            <h2 className="text-base font-semibold">Where are you?</h2>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              Share your location so we can show kirana stores delivering to you.
+            </p>
+            <Button onClick={requestLocation} className="mt-1">
+              Share location
+            </Button>
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/search" aria-label="Search" className="md:hidden">
-              <Button variant="secondary" size="icon">
-                <Search className="size-4" />
-              </Button>
-            </Link>
-            <ThemeToggle />
-            {isAuthed ? (
-              <Link href="/account" aria-label="Account">
-                <Button variant="secondary" size="icon">
-                  <User className="size-4" />
-                </Button>
-              </Link>
-            ) : (
-              <Link href="/login">
-                <Button size="sm">Sign in</Button>
-              </Link>
-            )}
-          </div>
-        </div>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-3 flex items-center gap-2">
-          <LocationPill
-            status={locStatus}
-            label={
-              locStatus === "ready" && location
-                ? location.label ??
-                  `Around ${location.lat.toFixed(3)}, ${location.lng.toFixed(3)}`
-                : locStatus === "denied"
-                  ? "Set your location"
-                  : "Locate me"
-            }
-            onClick={requestLocation}
-          />
-        </div>
-      </header>
+        ) : null}
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {isAuthed && user && (
-          <p className="text-sm text-muted-foreground mb-2">
-            Hi {user.name.split(" ")[0]} 👋
-          </p>
-        )}
+        {/* Loading the first nearby fetch */}
+        {nearbyQuery.isPending && location !== null ? <HomeSkeleton /> : null}
 
-        <div className="flex items-end justify-between mb-5">
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-              Stores nearby
-            </h1>
-            {nearbyQuery.data && nearbyQuery.data.items.length > 0 && (
-              <p className="text-sm text-muted-foreground mt-1">
-                {nearbyQuery.data.items.length} store
-                {nearbyQuery.data.items.length === 1 ? "" : "s"} within 5 km
-              </p>
-            )}
-          </div>
-        </div>
-
-        {location === null && locStatus !== "requesting" && (
-          <EmptyState
-            icon={<ShoppingBag className="size-5" />}
-            title="Where are you?"
-            description="Share your location so we can show kirana stores delivering to you."
-            action={<Button onClick={requestLocation}>Share location</Button>}
-          />
-        )}
-
-        {nearbyQuery.isPending && location !== null && (
-          <SkeletonGrid count={6} />
-        )}
-
-        {nearbyQuery.isError && (
+        {/* Network errored */}
+        {nearbyQuery.isError ? (
           <ErrorState
             title="Couldn't load nearby stores"
             description="Check your connection and try again."
             retry={() => nearbyQuery.refetch()}
           />
-        )}
+        ) : null}
 
-        {nearbyQuery.data && nearbyQuery.data.items.length === 0 && (
-          <EmptyState
-            icon={<Store className="size-5" />}
-            title="No stores yet"
-            description="We don't have any kirana stores in this radius yet. We'll be here soon."
-          />
-        )}
+        {/* No stores in zone */}
+        {nearbyQuery.data && allStores.length === 0 ? (
+          <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
+            <NoStoresIllustration className="w-44" />
+            <h2 className="text-base font-semibold">
+              No kirana stores in your area yet
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              We&rsquo;re expanding to more neighbourhoods soon. Check back later.
+            </p>
+          </div>
+        ) : null}
 
-        {nearbyQuery.data && nearbyQuery.data.items.length > 0 && (
+        {/* Primary store hero + everything below */}
+        {primaryStore ? (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ staggerChildren: 0.04 }}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5"
+            key={primaryStore.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={fadeIn}
+            className="space-y-6"
           >
-            {nearbyQuery.data.items.map((store, i) => (
-              <motion.div
-                key={store.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.25,
-                  delay: Math.min(i * 0.04, 0.4),
-                  ease: [0.16, 1, 0.3, 1],
-                }}
-              >
-                <StoreCard store={store} />
-              </motion.div>
-            ))}
+            <PrimaryStoreHero
+              store={primaryStore}
+              stats={detailQuery.data?.stats}
+              onChangeStore={() => setChooseStoreOpen(true)}
+            />
+
+            {/* Categories — above Buy again per user-locked design order. */}
+            <CategoryGrid
+              storeId={primaryStore.id}
+              storeName={primaryStore.name}
+              departments={detailQuery.data?.departments}
+              isLoading={detailQuery.isPending}
+            />
+
+            {/* Buy again — hidden when no history. */}
+            <BuyAgainRail
+              storeId={primaryStore.id}
+              storeName={primaryStore.name}
+              lastOrder={lastOrderAtPrimary}
+              recentProducts={recentReorderable}
+              isLoading={authStatus === "authenticated" && ordersQuery.isPending}
+            />
+
+            <ProductRail
+              title={
+                <>
+                  Featured at{" "}
+                  <span className="text-primary">{primaryStore.name}</span>
+                </>
+              }
+              seeAllHref={`/stores/${primaryStore.id}`}
+              products={detailQuery.data?.featuredProducts}
+              storeId={primaryStore.id}
+              storeName={primaryStore.name}
+              isLoading={detailQuery.isPending}
+              skeletonCount={4}
+            />
+
+            <CouponCarousel
+              storeName={primaryStore.name}
+              coupons={couponsQuery.data?.items}
+              isLoading={couponsQuery.isPending}
+            />
+
+            <OtherStoresRail
+              stores={otherStores}
+              isLoading={nearbyQuery.isPending}
+              onPickStore={handlePickStore}
+              onSeeAll={() => setChooseStoreOpen(true)}
+            />
           </motion.div>
-        )}
+        ) : null}
       </main>
 
+      <ChooseStoreSheet
+        open={chooseStoreOpen}
+        onOpenChange={setChooseStoreOpen}
+        stores={allStores}
+        selectedStoreId={selected.storeId}
+        onPick={handlePickStore}
+      />
     </div>
   )
 }
 
-function SkeletonGrid({ count }: { count: number }) {
+function HomeSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-[var(--radius-md)] bg-card border border-border overflow-hidden"
-        >
-          <Skeleton className="aspect-[16/9] rounded-none" />
-          <div className="p-4 space-y-2">
-            <Skeleton className="h-5 w-3/4" />
-            <Skeleton className="h-3 w-1/2" />
-            <Skeleton className="h-3 w-1/3" />
+    <div className="space-y-6">
+      {/* Hero card */}
+      <div className="rounded-[var(--radius-lg)] border border-border bg-card p-3 flex gap-3">
+        <Skeleton className="size-20 sm:size-24 rounded-[var(--radius-md)]" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-3 w-1/3" />
+          <div className="flex gap-1.5 mt-1.5">
+            <Skeleton className="h-5 w-20 rounded-full" />
+            <Skeleton className="h-5 w-16 rounded-full" />
           </div>
         </div>
-      ))}
+      </div>
+      {/* Category grid skeleton (4-col) */}
+      <div className="space-y-3">
+        <Skeleton className="h-5 w-1/3" />
+        <div className="grid grid-cols-4 gap-x-3 gap-y-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="aspect-square w-full rounded-[var(--radius-lg)]" />
+              <Skeleton className="h-3 w-3/4 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Product rail skeleton (3-card horizontal scroll) */}
+      <div className="space-y-3">
+        <Skeleton className="h-5 w-1/2" />
+        <div className="flex gap-2 overflow-hidden">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="w-[7rem] sm:w-[8.5rem] shrink-0 space-y-2">
+              <Skeleton className="aspect-square w-full rounded-[var(--radius-md)]" />
+              <Skeleton className="h-3 w-3/4" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Coupon carousel skeleton */}
+      <div className="space-y-2">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="w-full h-28 rounded-[var(--radius-md)]" />
+      </div>
+      {/* Other stores skeleton */}
+      <div className="space-y-3">
+        <Skeleton className="h-5 w-1/3" />
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-[var(--radius-md)] border border-border bg-card p-2.5 flex items-center gap-3"
+            >
+              <Skeleton className="size-16 rounded-[var(--radius-md)] shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

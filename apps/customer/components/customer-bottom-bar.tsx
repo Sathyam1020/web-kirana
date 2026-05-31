@@ -4,12 +4,13 @@ import type { OrderStatus } from "@workspace/api-client"
 import { useApi, useAuthStore } from "@workspace/auth"
 import { useQuery } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronUp, Package, ShoppingCart, X } from "lucide-react"
+import { ChevronRight, ChevronUp, Package, ShoppingCart, X } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
 import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
+import { cn } from "@workspace/ui/lib/utils"
 
 const ACTIVE: OrderStatus[] = ["PLACED", "ACCEPTED", "OUT_FOR_DELIVERY"]
 
@@ -77,7 +78,7 @@ export function CustomerBottomBar() {
   if (active.length === 0 && !showCart) return null
 
   return (
-    <div className="fixed bottom-6 inset-x-0 z-40 flex flex-col items-center gap-2 px-4 pointer-events-none">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] inset-x-0 z-40 flex flex-col items-center gap-2 px-4 pointer-events-none">
       {/* Expanded list when there are multiple active orders */}
       <AnimatePresence>
         {expanded && active.length > 1 && (
@@ -164,25 +165,92 @@ export function CustomerBottomBar() {
         )}
       </AnimatePresence>
 
-      {/* Cart CTA (solid primary — the main shopping action, sits at the bottom) */}
+      {/* Cart pill — Blinkit-style two-line layout with an inner Rausch
+          "View cart" button. Dark surface in light mode for high signal;
+          the inner Rausch button is the primary action affordance. */}
       <AnimatePresence>
         {showCart && (
-          <motion.div key="cart" {...SLIDE} className="pointer-events-auto">
-            <Link
-              href="/cart"
-              className="inline-flex items-center gap-2 h-14 px-5 sm:px-6 rounded-full bg-primary text-primary-foreground shadow-lg font-medium hover:bg-primary-active transition-colors max-w-[calc(100vw-2rem)] whitespace-nowrap"
-            >
-              <ShoppingCart className="size-4 shrink-0" />
-              <span className="tabular-nums">
-                {cartItems} item{cartItems === 1 ? "" : "s"}
-              </span>
-              <span aria-hidden>·</span>
-              <span className="tabular-nums">{formatPriceFromPaise(cartSubtotal)}</span>
-              <span className="text-primary-foreground/70 text-sm">View cart</span>
-            </Link>
+          <motion.div
+            key="cart"
+            {...SLIDE}
+            className={cn("pointer-events-auto", PILL_WIDTH)}
+          >
+            <CartPill
+              itemCount={cartItems}
+              subtotalPaise={cartSubtotal}
+              storeName={cart.storeName}
+            />
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+function CartPill({
+  itemCount,
+  subtotalPaise,
+  storeName,
+}: {
+  itemCount: number
+  subtotalPaise: number
+  storeName: string | null
+}) {
+  return (
+    <Link
+      href="/cart"
+      className={cn(
+        // Outer pill — `bg-card` flips automatically between modes (white in
+        // light, lifted dark surface in dark). One-tier shadow + thin border
+        // for definition against the page; never copy the mockup's literal
+        // colors, route through tokens.
+        "flex items-center gap-3 h-16 pl-3 pr-2",
+        "rounded-full bg-card text-foreground border border-border shadow-card",
+        "hover:bg-surface-soft transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      )}
+    >
+      {/* Cart icon — Rausch tint to stay visually anchored to the inner CTA */}
+      <span className="relative inline-flex size-10 items-center justify-center rounded-full shrink-0 text-foreground">
+        <ShoppingCart className="size-6" strokeWidth={1.75} aria-hidden />
+        {itemCount > 0 ? (
+          <span
+            aria-hidden
+            className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
+          >
+            {itemCount > 99 ? "99+" : itemCount}
+          </span>
+        ) : null}
+      </span>
+
+      {/* Two-line text block */}
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-semibold leading-tight">
+          <span className="tabular-nums">{itemCount}</span> item
+          {itemCount === 1 ? "" : "s"}
+          <span className="mx-1.5 text-muted-foreground" aria-hidden>
+            ·
+          </span>
+          <span className="tabular-nums">
+            {formatPriceFromPaise(subtotalPaise)}
+          </span>
+        </span>
+        <span className="block text-xs text-muted-foreground truncate mt-0.5">
+          {storeName ?? "Your cart"}
+        </span>
+      </span>
+
+      {/* Inner Rausch CTA */}
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 h-11 px-4",
+          "rounded-full bg-primary text-primary-foreground font-semibold text-sm",
+          "shrink-0",
+        )}
+      >
+        View cart
+        <ChevronRight className="size-4" strokeWidth={2.5} aria-hidden />
+      </span>
+    </Link>
   )
 }

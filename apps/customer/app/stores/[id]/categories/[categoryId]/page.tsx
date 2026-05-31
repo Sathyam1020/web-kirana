@@ -7,11 +7,11 @@ import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { ArrowLeft, Loader2, Package } from "lucide-react"
-import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useState } from "react"
 import { ProductCard } from "@/components/product-card"
 import { SubcategoryRail } from "@/components/subcategory-rail"
+import { useSmartBack } from "@/lib/use-smart-back"
 
 const PRODUCTS_PER_PAGE = 24
 
@@ -20,6 +20,10 @@ export default function CategoryPage() {
   const storeId = params.id
   const categoryId = params.categoryId
   const api = useApi()
+  // Smart back — honors browser history. From home, lands on home; from
+  // a deep link, falls back to /stores. Fixes the old hardcoded route that
+  // dumped users on the legacy store-detail page.
+  const onBack = useSmartBack("/stores")
 
   const enabled =
     typeof storeId === "string" &&
@@ -58,11 +62,14 @@ export default function CategoryPage() {
     <div className="min-h-svh bg-background flex flex-col">
       <header className="sticky top-0 z-30 h-14 flex items-center bg-background/90 backdrop-blur-md border-b border-border/40">
         <div className="flex items-center gap-2 px-3 sm:px-4 w-full">
-          <Link href={`/stores/${storeId}`} aria-label="Back to store">
-            <Button variant="secondary" size="icon">
-              <ArrowLeft className="size-4" />
-            </Button>
-          </Link>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label="Back"
+            onClick={onBack}
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
           <div className="min-w-0 flex-1">
             {categoryName ? (
               <h1 className="text-base font-semibold truncate">{categoryName}</h1>
