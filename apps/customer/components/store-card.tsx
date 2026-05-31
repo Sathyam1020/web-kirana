@@ -8,11 +8,14 @@ import Link from "next/link"
 import { motion } from "motion/react"
 import { MapPin, Store as StoreIcon } from "lucide-react"
 
+import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
+
 export function StoreCard({ store }: { store: StoreNearbyHit }) {
+  const hover = useMotionPreset(tweens.fast)
   return (
     <motion.div
       whileHover={{ y: -2 }}
-      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+      transition={hover}
       className="h-full"
     >
       <Link

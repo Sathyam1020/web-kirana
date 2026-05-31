@@ -4,6 +4,8 @@ import { SafeImage } from "@workspace/ui/components/safe-image"
 import { motion } from "motion/react"
 import Link from "next/link"
 
+import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
+
 /**
  * A single tappable category tile in the department grid. Routes to the
  * dual-pane category page. iconUrl is usually null today (admins haven't
@@ -18,8 +20,9 @@ export function CategoryTile({
   storeId: string
   category: { id: string; name: string; iconUrl: string | null }
 }) {
+  const hover = useMotionPreset(tweens.fast)
   return (
-    <motion.div whileHover={{ y: -2 }} transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}>
+    <motion.div whileHover={{ y: -2 }} transition={hover}>
       <Link
         href={`/stores/${storeId}/categories/${category.id}`}
         className="flex flex-col items-center gap-2 group"

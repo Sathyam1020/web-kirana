@@ -30,6 +30,7 @@ import { useEffect, useState } from "react"
 
 import { CartSummaryCard } from "@/components/cart-summary-card"
 import { OrderSuccessCelebration } from "@/components/order-success-celebration"
+import { Shake } from "@/components/shake"
 import { useCart } from "@/lib/cart"
 import { describeApiError, formatPriceFromPaise } from "@/lib/format"
 import { primeAudio } from "@/lib/sound"
@@ -51,6 +52,7 @@ export default function CheckoutPage() {
   const [couponCode, setCouponCode] = useState("")
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [previewing, setPreviewing] = useState(false)
+  const [couponError, setCouponError] = useState<string | null>(null)
   const [itemsExpanded, setItemsExpanded] = useState(false)
   const [placedOrderId, setPlacedOrderId] = useState<string | null>(null)
 
@@ -85,18 +87,22 @@ export default function CheckoutPage() {
       })
       setPreview(result)
       if (result.isValid) {
+        setCouponError(null)
         toast.success(`Saved ${formatPriceFromPaise(result.discountPaise)}`)
       } else if (
         result.reason === "MIN_ORDER_NOT_MET" &&
         result.minOrderPaise !== undefined
       ) {
+        setCouponError(`min-order-${Date.now()}`)
         toast.warning(
           `Add ${formatPriceFromPaise(result.minOrderPaise - subtotal)} more to use this coupon`,
         )
       } else {
+        setCouponError(`invalid-${Date.now()}`)
         toast.error("That coupon isn’t valid for this cart")
       }
     } catch (err) {
+      setCouponError(`error-${Date.now()}`)
       toast.error(describeApiError(err))
     } finally {
       setPreviewing(false)
@@ -274,13 +280,18 @@ export default function CheckoutPage() {
             Coupon
           </p>
           <div className="flex gap-2">
-            <Input
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-              placeholder="Enter code"
-              className="tabular-nums"
-              disabled={appliedCoupon !== null}
-            />
+            <Shake trigger={couponError} className="flex-1">
+              <Input
+                value={couponCode}
+                onChange={(e) => {
+                  setCouponCode(e.target.value.toUpperCase())
+                  if (couponError !== null) setCouponError(null)
+                }}
+                placeholder="Enter code"
+                className="tabular-nums w-full"
+                disabled={appliedCoupon !== null}
+              />
+            </Shake>
             {appliedCoupon ? (
               <Button
                 variant="ghost"

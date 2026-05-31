@@ -11,6 +11,7 @@ import { useState } from "react"
 import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
 import { cn } from "@workspace/ui/lib/utils"
+import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
 const ACTIVE: OrderStatus[] = ["PLACED", "ACCEPTED", "OUT_FOR_DELIVERY"]
 
@@ -23,12 +24,14 @@ const SHORT_LABEL: Record<OrderStatus, string> = {
   CANCELLED: "Cancelled",
 }
 
+// Slide pose for the pills. Transition is supplied at render time via
+// `useMotionPreset(tweens.route)` so reduced-motion preference flips it
+// to instant — never inline a one-off ease in DP-5+ code.
 const SLIDE = {
   initial: { y: 60, opacity: 0 },
   animate: { y: 0, opacity: 1 },
   exit: { y: 60, opacity: 0 },
-  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-}
+} as const
 
 const PILL_WIDTH = "w-[min(24rem,calc(100vw-2rem))]"
 
@@ -49,6 +52,7 @@ export function CustomerBottomBar() {
   const pathname = usePathname() ?? ""
   const cart = useCart()
   const cartItems = cart.totalItems()
+  const slideT = useMotionPreset(tweens.route)
   const cartSubtotal = cart.subtotalPaise()
   const [expanded, setExpanded] = useState(false)
 
@@ -83,7 +87,7 @@ export function CustomerBottomBar() {
       <AnimatePresence>
         {expanded && active.length > 1 && (
           <motion.div
-            {...SLIDE}
+            {...SLIDE} transition={slideT}
             className={`pointer-events-auto ${PILL_WIDTH} rounded-[var(--radius-lg)] border border-border bg-card shadow-lg overflow-hidden`}
           >
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
@@ -124,7 +128,7 @@ export function CustomerBottomBar() {
       {/* Active-order tracker pill (card style — distinct from the primary cart CTA) */}
       <AnimatePresence>
         {active.length === 1 && (
-          <motion.div key="one" {...SLIDE} className={`pointer-events-auto ${PILL_WIDTH}`}>
+          <motion.div key="one" {...SLIDE} transition={slideT} className={`pointer-events-auto ${PILL_WIDTH}`}>
             <Link
               href={`/orders/${active[0]!.id}`}
               className="flex items-center gap-3 h-14 px-4 rounded-full bg-card border border-border shadow-lg hover:border-primary/40 transition-colors"
@@ -148,7 +152,7 @@ export function CustomerBottomBar() {
           </motion.div>
         )}
         {active.length > 1 && (
-          <motion.div key="many" {...SLIDE} className={`pointer-events-auto ${PILL_WIDTH}`}>
+          <motion.div key="many" {...SLIDE} transition={slideT} className={`pointer-events-auto ${PILL_WIDTH}`}>
             <button
               onClick={() => setExpanded((e) => !e)}
               className="flex w-full items-center gap-3 h-14 px-4 rounded-full bg-card border border-border shadow-lg hover:border-primary/40 transition-colors"
@@ -172,7 +176,7 @@ export function CustomerBottomBar() {
         {showCart && (
           <motion.div
             key="cart"
-            {...SLIDE}
+            {...SLIDE} transition={slideT}
             className={cn("pointer-events-auto", PILL_WIDTH)}
           >
             <CartPill
@@ -196,6 +200,7 @@ function CartPill({
   subtotalPaise: number
   storeName: string | null
 }) {
+  const bounce = useMotionPreset(tweens.fast)
   return (
     <Link
       href="/cart"
@@ -210,20 +215,30 @@ function CartPill({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
-      {/* Cart icon — Rausch tint to stay visually anchored to the inner CTA */}
+      {/* Cart icon with bouncing Rausch badge dot keyed on itemCount —
+          every increment retriggers the spring in/out, giving the user a
+          micro-confirmation that their add registered. */}
       <span className="relative inline-flex size-10 items-center justify-center rounded-full shrink-0 text-foreground">
         <ShoppingCart className="size-6" strokeWidth={1.75} aria-hidden />
-        {itemCount > 0 ? (
-          <span
-            aria-hidden
-            className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
-          >
-            {itemCount > 99 ? "99+" : itemCount}
-          </span>
-        ) : null}
+        <AnimatePresence>
+          {itemCount > 0 ? (
+            <motion.span
+              key={itemCount}
+              aria-hidden
+              initial={{ scale: 0.4, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.4, opacity: 0 }}
+              transition={bounce}
+              className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
+            >
+              {itemCount > 99 ? "99+" : itemCount}
+            </motion.span>
+          ) : null}
+        </AnimatePresence>
       </span>
 
-      {/* Two-line text block */}
+      {/* Two-line text block. The price re-keys on its value so each update
+          fades in/out — a subtle "the number just changed" cue. */}
       <span className="flex-1 min-w-0">
         <span className="block text-sm font-semibold leading-tight">
           <span className="tabular-nums">{itemCount}</span> item
@@ -231,9 +246,18 @@ function CartPill({
           <span className="mx-1.5 text-muted-foreground" aria-hidden>
             ·
           </span>
-          <span className="tabular-nums">
-            {formatPriceFromPaise(subtotalPaise)}
-          </span>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={subtotalPaise}
+              initial={{ y: -3, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 3, opacity: 0 }}
+              transition={bounce}
+              className="tabular-nums inline-block"
+            >
+              {formatPriceFromPaise(subtotalPaise)}
+            </motion.span>
+          </AnimatePresence>
         </span>
         <span className="block text-xs text-muted-foreground truncate mt-0.5">
           {storeName ?? "Your cart"}

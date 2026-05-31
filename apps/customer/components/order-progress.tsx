@@ -16,8 +16,10 @@
 
 import type { OrderStatus, OrderView } from "@workspace/api-client"
 import { Check } from "lucide-react"
+import { motion } from "motion/react"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
 const STEPS: Array<{
   status: OrderStatus
@@ -46,6 +48,7 @@ export function OrderProgress({ order }: { order: OrderView }) {
   if (order.status === "REJECTED" || order.status === "CANCELLED") return null
 
   const currentIdx = HAPPY_ORDER.indexOf(order.status)
+  const draw = useMotionPreset(tweens.slow)
 
   return (
     <div className="rounded-[var(--radius-md)] border border-border bg-card p-4">
@@ -55,6 +58,10 @@ export function OrderProgress({ order }: { order: OrderView }) {
           const isCurrent = i === currentIdx
           const isLast = i === STEPS.length - 1
           const at = step.at(order)
+          // Connector between step i and i+1 fills if step i+1 has been
+          // reached (i < currentIdx). When the status advances mid-screen,
+          // motion's scaleY transition draws the line from top to bottom.
+          const connectorFilled = i < currentIdx
           return (
             <li key={step.status} className="flex gap-3">
               <div className="flex flex-col items-center">
@@ -83,11 +90,17 @@ export function OrderProgress({ order }: { order: OrderView }) {
                 {!isLast ? (
                   <span
                     aria-hidden
-                    className={cn(
-                      "w-0.5 flex-1 min-h-8 my-1",
-                      i < currentIdx ? "bg-primary" : "bg-border",
-                    )}
-                  />
+                    className="relative w-0.5 flex-1 min-h-8 my-1 bg-border overflow-hidden"
+                  >
+                    <motion.span
+                      aria-hidden
+                      initial={false}
+                      animate={{ scaleY: connectorFilled ? 1 : 0 }}
+                      transition={draw}
+                      style={{ transformOrigin: "top" }}
+                      className="absolute inset-0 bg-primary"
+                    />
+                  </span>
                 ) : null}
               </div>
               <div className={cn("pb-6", !done && !isCurrent && "opacity-60")}>
