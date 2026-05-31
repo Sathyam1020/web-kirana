@@ -35,7 +35,7 @@ export function DepartmentSections({
   return (
     <section aria-label={`Shop by category at ${storeName}`} className="space-y-4">
       <div className="flex items-end justify-between">
-        <h3 className="text-base font-semibold">
+        <h3 className="text-[15px] font-semibold">
           Shop by category at <span className="text-primary">{storeName}</span>
         </h3>
         {hasContent ? (

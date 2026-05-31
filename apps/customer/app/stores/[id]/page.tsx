@@ -158,7 +158,7 @@ export default function StoreDetailPage() {
         </div>
       ) : null}
 
-      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+      <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {detail.isError ? (
           <ErrorState
             title="Couldn't load this store"
@@ -356,7 +356,7 @@ function roundDown(n: number): number {
 
 function StoreBodySkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
       <section className="space-y-3">
         <Skeleton className="h-5 w-40" />

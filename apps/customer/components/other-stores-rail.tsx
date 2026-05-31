@@ -41,7 +41,7 @@ export function OtherStoresRail({
   return (
     <section aria-label="Other nearby stores" className="space-y-3">
       <div className="flex items-end justify-between">
-        <h3 className="text-base font-semibold">Other nearby stores</h3>
+        <h3 className="text-[15px] font-semibold">Other nearby stores</h3>
         {hasStores && (stores?.length ?? 0) > VISIBLE ? (
           <button
             type="button"

@@ -3,304 +3,415 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
+
+/* Tailwind v4 source scanning — required for utilities used in TSX files
+   across the monorepo to be generated. */
 @source "../../../apps/**/*.{ts,tsx}";
 @source "../../../components/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
 
-/*
- * Kirana design tokens — Airbnb-inspired.
- * Edit design.md FIRST when changing these; this file mirrors that spec.
- *
- * Primary    = Rausch red #ff385c (the ONE brand accent — used scarcely).
- * Canvas     = pure white #ffffff (no warm cream).
- * Ink        = near-black #222222 (never pure black).
- * Shape      = 8px buttons, 14px cards, full-pill search bar.
- * Elevation  = one shadow tier across the whole system.
- * Type       = single family (Inter Variable → Cereal VF when licensed),
- *              display weight = weight 500–700 of the body font.
- */
-
 @theme inline {
-    --font-sans: var(--font-sans);
-    --font-display: var(--font-sans);          /* same family — no separate display */
-    --font-mono: var(--font-mono);
-    --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --font-mono: var(--font-mono);
 
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-border-soft: var(--border-soft);
-    --color-border-strong: var(--border-strong);
-    --color-destructive: var(--destructive);
-    --color-destructive-foreground: var(--destructive-foreground);
-    --color-destructive-hover: var(--destructive-hover);
-    --color-success: var(--success);
-    --color-success-foreground: var(--success-foreground);
-    --color-success-soft: var(--success-soft);
-    --color-warning: var(--warning);
-    --color-warning-foreground: var(--warning-foreground);
-    --color-warning-soft: var(--warning-soft);
-    --color-info: var(--info);
-    --color-info-foreground: var(--info-foreground);
-    --color-info-soft: var(--info-soft);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-muted-soft: var(--muted-soft);
-    --color-body: var(--body);
-    --color-surface-soft: var(--surface-soft);
-    --color-surface-strong: var(--surface-strong);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-primary-active: var(--primary-active);
-    --color-primary-disabled: var(--primary-disabled);
-    --color-luxe: var(--luxe);
-    --color-plus: var(--plus);
-    --color-legal-link: var(--legal-link);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
+  /* ========================================
+     COLOR → UTILITY BRIDGE
+     Every CSS var under :root / .dark needs a `--color-<name>` here
+     for `bg-<name>`, `text-<name>`, `border-<name>` to exist.
+     ======================================== */
 
-    /* Radius — soft but subtler than the previous mint system.
-       Buttons 8px, cards 14px, search bars / orbs / hearts fully pill. */
-    --radius-sm: calc(var(--radius) * 0.5);    /* 4px  — chips, kbd, tight pills */
-    --radius-md: calc(var(--radius) * 1.75);   /* 14px — product / store cards */
-    --radius-lg: calc(var(--radius) * 2);      /* 16px — reservation card, modals */
-    --radius-xl: calc(var(--radius) * 4);      /* 32px — category strip wrappers */
-    --radius-full: 9999px;                     /* search bar, orb, heart, badges */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
-    /* Spacing — 4px base with a 2px micro-step. */
-    --space-xxs: 0.125rem;     /*  2px */
-    --space-xs: 0.25rem;       /*  4px */
-    --space-sm: 0.5rem;        /*  8px */
-    --space-md: 0.75rem;       /* 12px */
-    --space-base: 1rem;        /* 16px */
-    --space-lg: 1.5rem;        /* 24px */
-    --space-xl: 2rem;          /* 32px */
-    --space-xxl: 3rem;         /* 48px */
-    --space-section: 4rem;     /* 64px */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
 
-    /* ONE shadow tier — the system has one shadow definition.
-       Used on hover-floated cards, search bar at rest, and dropdowns.
-       sm / md / lg / xl are aliases so shadcn primitives keep working. */
-    --shadow-card:
-        rgba(0, 0, 0, 0.02) 0 0 0 1px,
-        rgba(0, 0, 0, 0.04) 0 2px 6px 0,
-        rgba(0, 0, 0, 0.1)  0 4px 8px 0;
-    --shadow-sm: var(--shadow-card);
-    --shadow: var(--shadow-card);
-    --shadow-md: var(--shadow-card);
-    --shadow-lg: var(--shadow-card);
-    --shadow-xl: var(--shadow-card);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-accent-yellow: var(--accent-yellow);
+  --color-accent-yellow-foreground: var(--accent-yellow-foreground);
+
+  --color-surface-soft: var(--surface-soft);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-strong: var(--surface-strong);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--surface-soft);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-body: var(--body);
+  --color-subtle: var(--subtle);
+
+  --color-accent: var(--surface-soft);
+  --color-accent-foreground: var(--foreground);
+
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-foreground: var(--success-foreground);
+
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-foreground: var(--info-foreground);
+
+  --color-fresh: var(--fresh);
+  --color-best-seller: var(--best-seller);
+  --color-limited: var(--limited);
+
+  --color-cart-bg: var(--cart-bg);
+  --color-cart-foreground: var(--cart-foreground);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Compatibility aliases for components written against earlier tokens. */
+  --color-luxe: var(--primary);
+
+  /* ========================================
+     QUICK COMMERCE SPACING
+     ======================================== */
+
+  --space-2xs: 0.125rem;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+  --space-2xl: 2rem;
+  --space-section: 2rem;
+
+  /* ========================================
+     RADIUS SYSTEM — DP-7 tightened a notch across the board for
+     denser commerce geometry. Cards land at 8px, chips at 6px,
+     buttons at 8px via --radius.
+     ======================================== */
+
+  --radius-sm: 0.25rem;   /* 4px — chips, pills, small badges */
+  --radius-md: 0.5rem;    /* 8px — product cards, store cards */
+  --radius-lg: 0.75rem;   /* 12px — modals, sheets */
+  --radius-xl: 1rem;      /* 16px — hero sections */
+  --radius-full: 9999px;
+
+  /* ========================================
+     SHADOWS
+     ======================================== */
+
+  --shadow-xs: rgba(0, 0, 0, 0.03) 0 1px 2px;
+  --shadow-sm: rgba(0, 0, 0, 0.04) 0 2px 4px;
+  --shadow-md: rgba(0, 0, 0, 0.06) 0 4px 10px;
+  --shadow-lg: rgba(0, 0, 0, 0.08) 0 8px 20px;
+  /* Compatibility alias — most cards reference `shadow-card`. */
+  --shadow-card: var(--shadow-md);
+
+  /* ========================================
+     MOTION
+     ======================================== */
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 280ms;
 }
 
 :root {
-    /* Canvas + ink. Airbnb's pure-white floor with near-black ink. */
-    --background: oklch(1 0 0);                /* #ffffff */
-    --foreground: oklch(0.24 0 0);             /* #222222 — ink, never pure black */
-    --card: oklch(1 0 0);                      /* #ffffff */
-    --card-foreground: oklch(0.24 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.24 0 0);
+  /* ========================================
+     LIGHT MODE — Blinkit-style green commerce
+     ======================================== */
 
-    /* RAUSCH — the single brand accent. Used scarcely. */
-    --primary: oklch(0.65 0.24 18);            /* #ff385c */
-    --primary-foreground: oklch(1 0 0);        /* white text on Rausch */
-    --primary-active: oklch(0.55 0.25 18);     /* #e00b41 — press state */
-    --primary-disabled: oklch(0.91 0.06 18);   /* #ffd1da — pale Rausch */
+  --background: #f7f8f5;
+  --foreground: #1c1c1c;
 
-    /* Secondary CTA = white fill with ink outline (not a colour swap). */
-    --secondary: oklch(1 0 0);
-    --secondary-foreground: oklch(0.24 0 0);
+  --card: #ffffff;
+  --card-foreground: #1c1c1c;
 
-    /* Surface scale — both alias `muted` for shadcn primitives. */
-    --surface-soft: oklch(0.97 0 0);           /* #f7f7f7 — filter band, disabled fields */
-    --surface-strong: oklch(0.95 0 0);         /* #f2f2f2 — circular icon-button bg */
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.52 0 0);       /* #6a6a6a — sub-titles, inactive tabs */
-    --muted-soft: oklch(0.65 0 0);             /* #929292 — disabled link text */
+  --popover: #ffffff;
+  --popover-foreground: #1c1c1c;
 
-    /* Long-form running text — softer than ink. */
-    --body: oklch(0.36 0 0);                   /* #3f3f3f */
+  /* ========================================
+     PRIMARY GREEN
+     ======================================== */
 
-    /* Accent = selected-list-item background. Neutral, not Rausch. */
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.24 0 0);
+  --primary: #0c831f;
+  --primary-hover: #0a6e1a;
+  --primary-active: #086115;
+  --primary-foreground: #ffffff;
 
-    /* Sub-brand accents — scoped to Luxe / Plus surfaces only. */
-    --luxe: oklch(0.31 0.18 305);              /* #460479 */
-    --plus: oklch(0.42 0.18 0);                /* #92174d */
+  /* ========================================
+     YELLOW ACCENT
+     ======================================== */
 
-    /* Destructive — distinct from Rausch (darker, more saturated). */
-    --destructive: oklch(0.51 0.20 30);        /* #c13515 */
-    --destructive-hover: oklch(0.46 0.21 30);  /* #b32505 */
-    --destructive-foreground: oklch(1 0 0);
+  --accent-yellow: #f8cb46;
+  --accent-yellow-foreground: #1c1c1c;
 
-    /* Semantic states. Muted to match Airbnb's restraint — never neon.
-       Each has a `-soft` companion for banner backgrounds (10–15% tint). */
-    --success: oklch(0.55 0.13 160);           /* #2e8a5d — muted forest */
-    --success-foreground: oklch(1 0 0);
-    --success-soft: oklch(0.95 0.04 160);      /* #e6f3ec — banner bg */
+  /* ========================================
+     SURFACES
+     ======================================== */
 
-    --warning: oklch(0.74 0.16 75);            /* #d99027 — warm amber */
-    --warning-foreground: oklch(0.24 0 0);     /* ink on amber */
-    --warning-soft: oklch(0.96 0.05 80);       /* #f8efd9 — banner bg */
+  --surface-soft: #f3f4f6;
+  --surface-muted: #eceef1;
+  --surface-strong: #e5e7eb;
 
-    --info: oklch(0.62 0.13 230);              /* #4a86b5 — subdued blue */
-    --info-foreground: oklch(1 0 0);
-    --info-soft: oklch(0.95 0.03 230);         /* #e6eef5 — banner bg */
+  --secondary: #ffffff;
+  --secondary-foreground: #1c1c1c;
 
-    /* Hairlines. Three tones for different separator weights. */
-    --border: oklch(0.88 0 0);                 /* #dddddd — default 1px hairline */
-    --border-soft: oklch(0.92 0 0);            /* #ebebeb — long-scroll editorial */
-    --border-strong: oklch(0.79 0 0);          /* #c1c1c1 — disabled outline, focus */
+  /* ========================================
+     TEXT HIERARCHY
+     ======================================== */
 
-    /* Inputs — border thickens to 2px ink on focus. No glow ring. */
-    --input: oklch(0.88 0 0);
-    --input-focus: oklch(0.24 0 0);
-    --ring: oklch(0.24 0 0);                   /* ink, not Rausch */
+  --muted-foreground: #6b7280;
+  --body: #374151;
+  --subtle: #9ca3af;
 
-    /* Legal-band link blue — only inside legal copy. */
-    --legal-link: oklch(0.65 0.18 260);        /* #428bff */
+  /* ========================================
+     BORDERS
+     ======================================== */
 
-    /* Modal backdrop — black at 50% opacity. */
-    --scrim: oklch(0 0 0 / 50%);
+  --border: #e5e7eb;
+  --border-soft: #f3f4f6;
+  --border-strong: #d1d5db;
 
-    /* Chart palette: Rausch → Plus magenta → Luxe purple → neutral scale. */
-    --chart-1: oklch(0.65 0.24 18);
-    --chart-2: oklch(0.42 0.18 0);
-    --chart-3: oklch(0.31 0.18 305);
-    --chart-4: oklch(0.52 0 0);
-    --chart-5: oklch(0.79 0 0);
+  /* ========================================
+     INPUTS
+     ======================================== */
 
-    --radius: 0.5rem;                          /* 8px button base */
+  --input: #f3f4f6;
+  --input-focus: #0c831f;
+  --ring: #0c831f;
 
-    /* Sidebar matches the canvas — no contrast surface. */
-    --sidebar: oklch(1 0 0);
-    --sidebar-foreground: oklch(0.24 0 0);
-    --sidebar-primary: oklch(0.65 0.24 18);
-    --sidebar-primary-foreground: oklch(1 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.24 0 0);
-    --sidebar-border: oklch(0.88 0 0);
-    --sidebar-ring: oklch(0.24 0 0);
+  /* ========================================
+     SUCCESS / WARNING / DESTRUCTIVE / INFO
+     ======================================== */
+
+  --success: #16a34a;
+  /* DP-7: soft tints toned to ~50% saturation so they read as quiet
+     status backgrounds, not radium highlights. */
+  --success-soft: #eaf6ed;
+  --success-foreground: #ffffff;
+
+  --warning: #d97706;
+  --warning-soft: #fdf2dd;
+  --warning-foreground: #1c1c1c;
+
+  --destructive: #dc2626;
+  --destructive-hover: #b91c1c;
+  --destructive-foreground: #ffffff;
+
+  --info: #2563eb;
+  --info-soft: #e7eefc;
+  --info-foreground: #ffffff;
+
+  /* ========================================
+     PRODUCT TAGS — grounded, not neon.
+     Fresh used to be #22C55E (candy green); the new value sits in
+     Blinkit's range where green is a CTA + verification color, not
+     a screaming product tag. Best-seller deepened to a warm amber.
+     ======================================== */
+
+  --fresh: #15803d;
+  --best-seller: #d97706;
+  --limited: #dc2626;
+
+  /* ========================================
+     CART (theme uses primary green; reads as a confident commerce CTA) */
+  --cart-bg: #0c831f;
+  --cart-foreground: #ffffff;
+
+  /* ========================================
+     SIDEBAR / CHARTS
+     ======================================== */
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1c1c1c;
+  --sidebar-primary: #0c831f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-border: #e5e7eb;
+
+  --chart-1: #0c831f;
+  --chart-2: #22c55e;
+  --chart-3: #f8cb46;
+  --chart-4: #2563eb;
+  --chart-5: #dc2626;
+
+  /* DP-7: 12px → 8px. Blinkit-grade geometry — sharper, more
+     operational, less editorial. Shadcn primitives that reference
+     --radius automatically tighten. */
+  --radius: 0.5rem;
 }
 
 .dark {
-    /* Rider-app dark mode (outdoor sun legibility). Canvas/ink flip,
-       Rausch holds — slightly more saturated to stay punchy on near-black. */
-    --background: oklch(0.17 0 0);
-    --foreground: oklch(0.97 0 0);
-    --card: oklch(0.22 0 0);
-    --card-foreground: oklch(0.97 0 0);
-    --popover: oklch(0.22 0 0);
-    --popover-foreground: oklch(0.97 0 0);
+  /* ========================================
+     DARK MODE — softer surfaces, not pure black
+     ======================================== */
 
-    --primary: oklch(0.68 0.25 18);
-    --primary-foreground: oklch(1 0 0);
-    --primary-active: oklch(0.58 0.26 18);
-    --primary-disabled: oklch(0.35 0.10 18);
+  --background: #161816;
+  --foreground: #f5f5f5;
 
-    --secondary: oklch(0.22 0 0);
-    --secondary-foreground: oklch(0.97 0 0);
+  --card: #1f231f;
+  --card-foreground: #f5f5f5;
 
-    --surface-soft: oklch(0.25 0 0);
-    --surface-strong: oklch(0.30 0 0);
-    --muted: oklch(0.25 0 0);
-    --muted-foreground: oklch(0.70 0 0);
-    --muted-soft: oklch(0.50 0 0);
+  --popover: #1f231f;
+  --popover-foreground: #f5f5f5;
 
-    --body: oklch(0.85 0 0);
+  /* DP-7 grounded dark-mode primary — was Tailwind green-500 #22C55E
+     which read radium next to the warm grays. Pulled down to a
+     forest-Blinkit green that still passes contrast on the new
+     darker surfaces. */
+  --primary: #1a9c36;
+  --primary-hover: #15803d;
+  --primary-active: #126b32;
+  --primary-foreground: #ffffff;
 
-    --accent: oklch(0.25 0 0);
-    --accent-foreground: oklch(0.97 0 0);
+  --accent-yellow: #eab308;
+  --accent-yellow-foreground: #1c1c1c;
 
-    --luxe: oklch(0.55 0.20 305);
-    --plus: oklch(0.58 0.20 0);
+  --surface-soft: #262b26;
+  --surface-muted: #2f352f;
+  --surface-strong: #3b423b;
 
-    --destructive: oklch(0.65 0.22 30);
-    --destructive-hover: oklch(0.58 0.23 30);
-    --destructive-foreground: oklch(1 0 0);
+  --secondary: #262b26;
+  --secondary-foreground: #f5f5f5;
 
-    /* Semantic states — dark mode mirrors. Slightly lifted lightness so
-       they remain legible on the near-black canvas. Soft backgrounds use
-       low-alpha overlays of the base hue. */
-    --success: oklch(0.65 0.15 160);
-    --success-foreground: oklch(0.10 0 0);
-    --success-soft: oklch(0.55 0.12 160 / 18%);
+  --muted-foreground: #a1a1aa;
+  --body: #d4d4d8;
+  --subtle: #71717a;
 
-    --warning: oklch(0.80 0.18 75);
-    --warning-foreground: oklch(0.18 0 0);
-    --warning-soft: oklch(0.74 0.16 75 / 18%);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.14);
 
-    --info: oklch(0.70 0.15 230);
-    --info-foreground: oklch(0.10 0 0);
-    --info-soft: oklch(0.62 0.13 230 / 18%);
+  --input: rgba(255, 255, 255, 0.08);
+  --input-focus: #22c55e;
+  --ring: #22c55e;
 
-    --border: oklch(1 0 0 / 12%);
-    --border-soft: oklch(1 0 0 / 8%);
-    --border-strong: oklch(1 0 0 / 22%);
+  --success: #1a9c36;
+  --success-soft: rgba(26, 156, 54, 0.16);
+  --success-foreground: #ffffff;
 
-    --input: oklch(1 0 0 / 14%);
-    --input-focus: oklch(0.97 0 0);
-    --ring: oklch(0.97 0 0);
+  --warning: #eab308;
+  --warning-soft: rgba(234, 179, 8, 0.16);
+  --warning-foreground: #1c1c1c;
 
-    --legal-link: oklch(0.72 0.16 260);
-    --scrim: oklch(0 0 0 / 60%);
+  --destructive: #ef4444;
+  --destructive-hover: #dc2626;
+  --destructive-foreground: #ffffff;
 
-    --chart-1: oklch(0.68 0.25 18);
-    --chart-2: oklch(0.58 0.20 0);
-    --chart-3: oklch(0.55 0.20 305);
-    --chart-4: oklch(0.70 0 0);
-    --chart-5: oklch(0.50 0 0);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.16);
+  --info-foreground: #ffffff;
 
-    --sidebar: oklch(0.20 0 0);
-    --sidebar-foreground: oklch(0.97 0 0);
-    --sidebar-primary: oklch(0.68 0.25 18);
-    --sidebar-primary-foreground: oklch(1 0 0);
-    --sidebar-accent: oklch(0.25 0 0);
-    --sidebar-accent-foreground: oklch(0.97 0 0);
-    --sidebar-border: oklch(1 0 0 / 12%);
-    --sidebar-ring: oklch(0.97 0 0);
+  /* DP-7 dark-mode tags — same grounding philosophy as light mode.
+     #4ADE80 was Tailwind green-400 — pure radium against the dark grays. */
+  --fresh: #2c9f50;
+  --best-seller: #eab308;
+  --limited: #f87171;
+
+  --cart-bg: #1a9c36;
+  --cart-foreground: #ffffff;
+
+  --sidebar: #1f231f;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #1a9c36;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+
+  --chart-1: #1a9c36;
+  --chart-2: #2c9f50;
+  --chart-3: #eab308;
+  --chart-4: #60a5fa;
+  --chart-5: #f87171;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     @apply bg-background text-foreground;
-    /* Inter variable — enable contextual alternates and tabular numbers
-       for the price/ID/timestamp surfaces that lean on aligned digits. */
-    font-feature-settings: "cv11", "ss01";
-    }
-  button:not(:disabled), [role="button"]:not(:disabled) {
-    cursor: pointer;
-    }
 
-  /* Tabular numbers — apply to elements that render prices, distances,
-     order IDs, timestamps. Replaces the old `--font-mono` swap. */
+    font-feature-settings: "cv11", "ss01", "tnum";
+
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+    transition:
+      transform var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      opacity var(--duration-fast) var(--ease-out);
+  }
+
+  button:active:not(:disabled),
+  [role="button"]:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  input,
+  textarea,
+  select {
+    transition:
+      border-color var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
+  }
+
   .tabular-nums {
-    font-feature-settings: "tnum" 1, "cv11" 1;
     font-variant-numeric: tabular-nums;
-    }
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }

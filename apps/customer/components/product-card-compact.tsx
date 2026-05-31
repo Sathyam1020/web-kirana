@@ -60,19 +60,25 @@ export function ProductCardCompact({
       transition={tap}
       className={cn(
         "flex flex-col select-none rounded-[var(--radius-md)] bg-card border border-border-soft",
-        "p-2 hover:shadow-card transition-shadow",
+        // DP-7 compression: card padding p-1.5 → p-1 to claw back ~8px
+        // vertical per card and let more products fit in a viewport.
+        "p-1 hover:shadow-card transition-shadow",
         className,
       )}
       data-product-id={product.id}
     >
-      {/* Image — discount tag / OOS overlay only. No action button here. */}
+      {/* Image — discount tag / OOS overlay only. No action button here.
+          DP-7 compression: aspect-square → aspect-[5/4] trims ~25px of
+          image height per card; product is still recognizable while the
+          ADD button (the actual commerce primitive) reaches the thumb
+          faster on scroll. */}
       <div className="relative">
         <ProgressiveImage
           src={product.imageUrl}
           alt={product.name}
-          aspect="aspect-square"
+          aspect="aspect-[5/4]"
           rounded="rounded-[var(--radius-md)]"
-          fallback={<ShoppingBag className="size-7 text-muted-foreground" />}
+          fallback={<ShoppingBag className="size-6 text-muted-foreground" />}
         />
         {discountLabel && !oos ? (
           <span className="absolute top-1.5 left-1.5 rounded-[var(--radius-sm)] bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground shadow-card">
@@ -86,16 +92,18 @@ export function ProductCardCompact({
         ) : null}
       </div>
 
-      {/* Name + unit + price stack — tight, no min-h reserve. */}
-      <div className="pt-2 px-0.5">
-        <p className="text-[13px] font-medium leading-tight line-clamp-2 text-foreground">
+      {/* Name + unit + price stack — DP-7: tighter typography for
+          denser grocery scanability. Name + price stay legible; the
+          delta is shaved off the gaps. */}
+      <div className="pt-1.5 px-0.5">
+        <p className="text-[12px] font-medium leading-[1.15] line-clamp-2 text-foreground">
           {product.name}
         </p>
-        <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
           {unitLabel(product.unit)}
         </p>
-        <div className="mt-1 flex items-baseline gap-1.5">
-          <span className="tabular-nums text-sm font-bold text-foreground">
+        <div className="mt-0.5 flex items-baseline gap-1">
+          <span className="tabular-nums text-[13px] font-bold text-foreground">
             {formatPriceFromPaise(product.effectivePricePaise)}
           </span>
           {hasDiscount ? (
@@ -106,15 +114,14 @@ export function ProductCardCompact({
         </div>
       </div>
 
-      {/* ADD / stepper — full-width row at the bottom. `mt-auto` anchors
-          it to the card foot so siblings of different name lengths still
-          line up their buttons. */}
-      <div className="mt-auto pt-2 px-0.5">
+      {/* ADD / stepper — DP-7: h-9 → h-8 keeps a comfortable 32px tap
+          target while shaving height off each card. */}
+      <div className="mt-auto pt-1.5 px-0.5">
         {oos ? (
           <button
             type="button"
             disabled
-            className="w-full inline-flex items-center justify-center h-9 rounded-full text-xs font-semibold text-muted-foreground border border-border bg-surface-soft"
+            className="w-full inline-flex items-center justify-center h-8 rounded-full text-[11px] font-semibold text-muted-foreground border border-border bg-surface-soft"
           >
             Notify me
           </button>
@@ -128,7 +135,7 @@ export function ProductCardCompact({
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={tap}
                 className={cn(
-                  "flex items-center justify-between h-9 rounded-full overflow-hidden w-full",
+                  "flex items-center justify-between h-8 rounded-full overflow-hidden w-full",
                   "bg-primary text-primary-foreground shadow-card",
                 )}
                 data-state="stepper"
@@ -139,15 +146,17 @@ export function ProductCardCompact({
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Remove one ${product.name}`}
-                  className="h-9 px-3 inline-flex items-center justify-center"
+                  className="h-8 px-2.5 inline-flex items-center justify-center"
                 >
-                  <Minus className="size-4" strokeWidth={2.5} />
+                  <Minus className="size-3.5" strokeWidth={2.5} />
                 </motion.button>
                 <motion.span
                   key={inCart}
-                  initial={{ y: -3, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 3, opacity: 0 }}
+                  // DP-6: tactile scale pulse on every increment — feels
+                  // like a click instead of a soft slide-fade.
+                  initial={{ scale: 1.18, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
                   transition={tap}
                   className="tabular-nums text-sm font-bold"
                 >
@@ -159,9 +168,9 @@ export function ProductCardCompact({
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Add one more ${product.name}`}
-                  className="h-9 px-3 inline-flex items-center justify-center"
+                  className="h-8 px-2.5 inline-flex items-center justify-center"
                 >
-                  <Plus className="size-4" strokeWidth={2.5} />
+                  <Plus className="size-3.5" strokeWidth={2.5} />
                 </motion.button>
               </motion.div>
             ) : (
@@ -176,15 +185,16 @@ export function ProductCardCompact({
                 transition={tap}
                 aria-label={`Add ${product.name} to cart`}
                 className={cn(
-                  // Full-width outlined ADD — high invitation, zero
-                  // chance of overlapping anything else.
-                  "w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-full",
-                  "bg-card border border-primary text-primary font-bold text-xs uppercase tracking-wide",
-                  "hover:bg-primary/5 transition-colors",
+                  // DP-6/DP-7: filled primary ADD (Blinkit/Zepto-native).
+                  // h-8 — 32px is the platform-recommended floor for tap
+                  // targets and lets ~3 more cards fit on a long scroll.
+                  "w-full inline-flex items-center justify-center gap-1.5 h-8 rounded-full",
+                  "bg-primary text-primary-foreground font-bold text-[11px] uppercase tracking-wide",
+                  "shadow-card hover:bg-primary-active transition-colors",
                 )}
                 data-state="add"
               >
-                <Plus className="size-4" strokeWidth={3} />
+                <Plus className="size-3.5" strokeWidth={3} />
                 Add
               </motion.button>
             )}

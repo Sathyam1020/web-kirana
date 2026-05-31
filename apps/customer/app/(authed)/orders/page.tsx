@@ -60,7 +60,7 @@ export default function OrdersPage() {
         </div>
       </header>
 
-      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+      <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {orders.isPending ? <OrdersSkeleton /> : null}
 
         {orders.isError ? (

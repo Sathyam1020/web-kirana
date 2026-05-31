@@ -207,7 +207,7 @@ export default function HomePage() {
           (which left rails marooned on the left and stat pills floating
           alone). max-w-md ≈ 448px keeps the feel of the design intact at
           every viewport. */}
-      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+      <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {/* No location → ask for it */}
         {location === null && locStatus !== "requesting" ? (
           <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
@@ -254,7 +254,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={fadeIn}
-            className="space-y-6"
+            className="space-y-4"
           >
             <PrimaryStoreHero
               store={primaryStore}
@@ -347,7 +347,7 @@ export default function HomePage() {
 
 function HomeSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Hero card */}
       <div className="rounded-[var(--radius-lg)] border border-border bg-card p-3 flex gap-3">
         <Skeleton className="size-20 sm:size-24 rounded-[var(--radius-md)]" />

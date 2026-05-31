@@ -205,21 +205,19 @@ function CartPill({
     <Link
       href="/cart"
       className={cn(
-        // Outer pill — `bg-card` flips automatically between modes (white in
-        // light, lifted dark surface in dark). One-tier shadow + thin border
-        // for definition against the page; never copy the mockup's literal
-        // colors, route through tokens.
-        "flex items-center gap-3 h-16 pl-3 pr-2",
+        // DP-6: previous white-card outer + inner Rausch CTA pattern,
+        // squeezed into the new h-12 compact frame. Card surface flips
+        // with the theme; the Rausch lives only on the inner action chip.
+        "flex items-center gap-2 h-12 pl-3 pr-1",
         "rounded-full bg-card text-foreground border border-border shadow-card",
         "hover:bg-surface-soft transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
-      {/* Cart icon with bouncing Rausch badge dot keyed on itemCount —
-          every increment retriggers the spring in/out, giving the user a
-          micro-confirmation that their add registered. */}
-      <span className="relative inline-flex size-10 items-center justify-center rounded-full shrink-0 text-foreground">
-        <ShoppingCart className="size-6" strokeWidth={1.75} aria-hidden />
+      {/* Cart icon with Rausch count badge — bounces on every increment
+          as the "add registered" cue. */}
+      <span className="relative inline-flex items-center justify-center shrink-0 text-foreground">
+        <ShoppingCart className="size-5" strokeWidth={2} aria-hidden />
         <AnimatePresence>
           {itemCount > 0 ? (
             <motion.span
@@ -229,7 +227,7 @@ function CartPill({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.4, opacity: 0 }}
               transition={bounce}
-              className="absolute -top-0.5 -right-0.5 inline-flex min-w-4 h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
+              className="absolute -top-1.5 -right-2 inline-flex min-w-[1rem] h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
             >
               {itemCount > 99 ? "99+" : itemCount}
             </motion.span>
@@ -237,42 +235,41 @@ function CartPill({
         </AnimatePresence>
       </span>
 
-      {/* Two-line text block. The price re-keys on its value so each update
-          fades in/out — a subtle "the number just changed" cue. */}
-      <span className="flex-1 min-w-0">
-        <span className="block text-sm font-semibold leading-tight">
-          <span className="tabular-nums">{itemCount}</span> item
-          {itemCount === 1 ? "" : "s"}
-          <span className="mx-1.5 text-muted-foreground" aria-hidden>
-            ·
-          </span>
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.span
-              key={subtotalPaise}
-              initial={{ y: -3, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 3, opacity: 0 }}
-              transition={bounce}
-              className="tabular-nums inline-block"
-            >
-              {formatPriceFromPaise(subtotalPaise)}
-            </motion.span>
-          </AnimatePresence>
-        </span>
-        <span className="block text-xs text-muted-foreground truncate mt-0.5">
-          {storeName ?? "Your cart"}
-        </span>
+      {/* Single-line text: count · total · store. */}
+      <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm font-semibold ml-1.5">
+        <span className="tabular-nums">{itemCount}</span>
+        <span className="text-muted-foreground" aria-hidden>·</span>
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={subtotalPaise}
+            initial={{ y: -2, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 2, opacity: 0 }}
+            transition={bounce}
+            className="tabular-nums inline-block"
+          >
+            {formatPriceFromPaise(subtotalPaise)}
+          </motion.span>
+        </AnimatePresence>
+        {storeName ? (
+          <>
+            <span className="text-muted-foreground" aria-hidden>·</span>
+            <span className="truncate text-muted-foreground font-normal">
+              {storeName}
+            </span>
+          </>
+        ) : null}
       </span>
 
-      {/* Inner Rausch CTA */}
+      {/* Inner Rausch CTA — compact for h-12 frame. */}
       <span
         className={cn(
-          "inline-flex items-center gap-1 h-11 px-4",
+          "inline-flex items-center gap-0.5 h-9 px-3.5",
           "rounded-full bg-primary text-primary-foreground font-semibold text-sm",
           "shrink-0",
         )}
       >
-        View cart
+        View
         <ChevronRight className="size-4" strokeWidth={2.5} aria-hidden />
       </span>
     </Link>

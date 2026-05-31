@@ -20,12 +20,11 @@ import { ProductCardCompact } from "@/components/product-card-compact"
 import { cn } from "@workspace/ui/lib/utils"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
-// Now that price + ADD chip sit on the same row below the image, the
-// card needs more horizontal room. ~2.5 cards visible on a 375–390px
-// viewport with a sliver of a 3rd as the scroll affordance — the same
-// pattern Blinkit/Zepto use. Inner content area lands at ~120-140px,
-// enough for "₹999" + an "ADD" chip side-by-side.
-const CARD_WIDTH_CLASS = "w-[8.5rem] sm:w-[10rem]"
+// DP-6 density pass: ~3 full cards visible on a 375-390px viewport with a
+// sliver of a 4th as the scroll affordance. Matches Blinkit/Zepto's actual
+// rail density — tighter than DP-1's 2.5-card layout, which was reading too
+// editorial for a commerce surface.
+const CARD_WIDTH_CLASS = "w-[7.25rem] sm:w-[8.5rem]"
 
 interface ProductRailProps {
   /**
@@ -122,7 +121,7 @@ function RailHeader({
   return (
     <div className="flex items-end justify-between gap-3">
       <div className="min-w-0">
-        <h3 className="text-base font-semibold truncate">{title}</h3>
+        <h3 className="text-[15px] font-semibold truncate">{title}</h3>
         {subtitle ? (
           <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
         ) : null}

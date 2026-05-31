@@ -51,17 +51,20 @@ export function PrimaryStoreHero({
       aria-label={`You are shopping at ${store.name}`}
       className="rounded-[var(--radius-lg)] border border-border bg-card overflow-hidden"
     >
-      <div className="flex gap-3 p-3">
+      <div className="flex gap-2.5 p-2">
         <Link
           href={`/stores/${store.id}`}
           className="shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-[var(--radius-md)]"
         >
+          {/* DP-7: store image w-20/24 → w-16/20 + outer pad p-3 → p-2.
+              Hero compresses from ~120px tall to ~90px so the actual
+              browse rails reach the viewport faster. */}
           <ProgressiveImage
             src={store.imageUrl}
             alt={store.name}
             aspect="aspect-square"
-            className="w-20 sm:w-24"
-            fallback={<StoreIcon className="size-7" />}
+            className="w-16 sm:w-20"
+            fallback={<StoreIcon className="size-6" />}
           />
         </Link>
 
@@ -71,7 +74,7 @@ export function PrimaryStoreHero({
               href={`/stores/${store.id}`}
               className="min-w-0 focus-visible:outline-none rounded-md"
             >
-              <h2 className="text-base sm:text-lg font-semibold truncate leading-tight">
+              <h2 className="text-[15px] sm:text-base font-semibold truncate leading-tight">
                 {store.name}
               </h2>
             </Link>
