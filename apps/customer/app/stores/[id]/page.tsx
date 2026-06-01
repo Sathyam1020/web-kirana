@@ -224,7 +224,6 @@ export default function StoreDetailPage() {
             {/* Category drilldown — department-grouped 4-col grid */}
             <DepartmentSections
               storeId={storeId}
-              storeName={store.name}
               departments={departments}
               isLoading={false}
             />
@@ -245,11 +244,6 @@ export default function StoreDetailPage() {
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${storeId}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={storeId}
                   storeName={store.name}
@@ -261,11 +255,6 @@ export default function StoreDetailPage() {
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${storeId}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={storeId}
                   storeName={store.name}

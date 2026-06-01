@@ -13,7 +13,6 @@
 
 import type { ProductPublicView } from "@workspace/api-client"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import Link from "next/link"
 import { motion } from "motion/react"
 
 import { ProductCardCompact } from "@/components/product-card-compact"
@@ -34,8 +33,6 @@ interface ProductRailProps {
    */
   title: React.ReactNode | null
   subtitle?: React.ReactNode
-  /** Inline action — usually a "See all" link to the store/category page. */
-  seeAllHref?: string
   products: ProductPublicView[] | undefined
   storeId: string
   /** Snapshot store name passed to the cart on add — drives the cart pill subline. */
@@ -51,7 +48,6 @@ interface ProductRailProps {
 export function ProductRail({
   title,
   subtitle,
-  seeAllHref,
   products,
   storeId,
   storeName,
@@ -75,7 +71,7 @@ export function ProductRail({
   return (
     <section className={cn("space-y-3", className)}>
       {title !== null ? (
-        <RailHeader title={title} subtitle={subtitle} seeAllHref={seeAllHref} />
+        <RailHeader title={title} subtitle={subtitle} />
       ) : null}
 
       <div
@@ -112,27 +108,15 @@ export function ProductRail({
 function RailHeader({
   title,
   subtitle,
-  seeAllHref,
 }: {
   title: React.ReactNode
   subtitle?: React.ReactNode
-  seeAllHref?: string
 }) {
   return (
-    <div className="flex items-end justify-between gap-3">
-      <div className="min-w-0">
-        <h3 className="text-[15px] font-semibold truncate">{title}</h3>
-        {subtitle ? (
-          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-        ) : null}
-      </div>
-      {seeAllHref ? (
-        <Link
-          href={seeAllHref}
-          className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          See all
-        </Link>
+    <div className="min-w-0">
+      <h3 className="text-[15px] font-semibold truncate">{title}</h3>
+      {subtitle ? (
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       ) : null}
     </div>
   )

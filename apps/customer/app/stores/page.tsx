@@ -219,6 +219,7 @@ export default function HomePage() {
         <MinOrderStrip
           storeId={primaryStore.id}
           minOrderPaise={primaryStore.minOrderPaise}
+          freeDeliveryThresholdPaise={primaryStore.freeDeliveryThresholdPaise}
         />
       ) : null}
 
@@ -293,7 +294,6 @@ export default function HomePage() {
                 category tiles), matching the /stores/[id] pattern. */}
             <DepartmentSections
               storeId={primaryStore.id}
-              storeName={primaryStore.name}
               departments={detailQuery.data?.departments}
               isLoading={detailQuery.isPending}
             />
@@ -308,13 +308,7 @@ export default function HomePage() {
             />
 
             <ProductRail
-              title={
-                <>
-                  Featured at{" "}
-                  <span className="text-primary">{primaryStore.name}</span>
-                </>
-              }
-              seeAllHref={`/stores/${primaryStore.id}`}
+              title="Featured"
               products={detailQuery.data?.featuredProducts}
               storeId={primaryStore.id}
               storeName={primaryStore.name}
@@ -324,18 +318,12 @@ export default function HomePage() {
 
             {/* Per-category product rails — mirrors /stores/[id]'s
                 categorySections so the home becomes a one-screen browse
-                of the store's catalogue, not just a featured-only teaser.
-                Each section header taps through to the dual-pane drilldown. */}
+                of the store's catalogue, not just a featured-only teaser. */}
             {detailQuery.data?.categorySections.map((section) =>
               section.products.length === 0 ? null : (
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${primaryStore.id}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={primaryStore.id}
                   storeName={primaryStore.name}
@@ -354,7 +342,6 @@ export default function HomePage() {
               stores={otherStores}
               isLoading={nearbyQuery.isPending}
               onPickStore={handlePickStore}
-              onSeeAll={() => setChooseStoreOpen(true)}
             />
           </motion.div>
         ) : null}

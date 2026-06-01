@@ -1,26 +1,30 @@
 "use client"
 
 /**
- * Thin sticky strip that shows "Add ₹X more to place this order" with an
- * animated progress bar when the cart subtotal is below the primary
- * store's minimum-order threshold.
+ * Sticky strip under the home header that surfaces ONE of two commerce
+ * nudges in priority order:
  *
- * Behavior:
- *   - Cart empty                  → renders nothing.
- *   - Cart store != current store → renders nothing (the cart-switch
- *                                   dialog will handle conflict).
- *   - minOrderPaise == 0          → renders nothing.
- *   - subtotal < minOrder         → "Add ₹X more" + progress fill.
- *   - subtotal >= minOrder        → quiet success state for ~1.6s before
- *                                   the parent removes it on the next
- *                                   render (we just keep showing while
- *                                   the strip is mounted).
+ *   1. Min order — "Add ₹X more to place this order" while subtotal is
+ *      below Store.minOrderPaise. Backend will reject placement with
+ *      MIN_ORDER_NOT_MET if the customer ignores this and tries anyway,
+ *      so the strip is a courtesy, not a gate.
  *
- * Mounted under the home header so it stays in view while scrolling.
+ *   2. Free delivery — "Add ₹X for free delivery" once min order is met
+ *      (or unset) and subtotal < Store.freeDeliveryThresholdPaise.
+ *      Threshold = 0 means the store doesn't offer a free tier; the strip
+ *      stays silent in that case.
+ *
+ * Hidden entirely when the cart is empty, scoped to another store, or
+ * neither nudge applies. Both states share one progress bar that fills
+ * against the currently-relevant target.
+ *
+ * IP-1 extended this from a single min-order strip to the two-stage flow
+ * above — the free-delivery upsell only appears once the min is cleared,
+ * so the customer sees one clear ask at a time.
  */
 
 import { AnimatePresence, motion } from "motion/react"
-import { Check } from "lucide-react"
+import { Check, Truck } from "lucide-react"
 
 import { cn } from "@workspace/ui/lib/utils"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
@@ -33,23 +37,64 @@ interface MinOrderStripProps {
   storeId: string
   /** Store's minimum-order paise threshold (0 = no minimum). */
   minOrderPaise: number
+  /** IP-1 — free-above-threshold target (0 = no free tier offered). */
+  freeDeliveryThresholdPaise: number
 }
 
-export function MinOrderStrip({ storeId, minOrderPaise }: MinOrderStripProps) {
+type Stage =
+  | { kind: "min-order"; remaining: number; pct: number; metMinimum: false }
+  | { kind: "min-order-met"; metMinimum: true }
+  | { kind: "free-delivery"; remaining: number; pct: number; metThreshold: false }
+  | { kind: "hidden" }
+
+function computeStage(
+  subtotal: number,
+  minOrderPaise: number,
+  freeDeliveryThresholdPaise: number,
+): Stage {
+  if (minOrderPaise > 0 && subtotal < minOrderPaise) {
+    const remaining = minOrderPaise - subtotal
+    return {
+      kind: "min-order",
+      remaining,
+      pct: Math.min(100, Math.round((subtotal / minOrderPaise) * 100)),
+      metMinimum: false,
+    }
+  }
+  if (freeDeliveryThresholdPaise > 0 && subtotal < freeDeliveryThresholdPaise) {
+    const remaining = freeDeliveryThresholdPaise - subtotal
+    return {
+      kind: "free-delivery",
+      remaining,
+      pct: Math.min(100, Math.round((subtotal / freeDeliveryThresholdPaise) * 100)),
+      metThreshold: false,
+    }
+  }
+  // Min is met AND (no free tier OR free tier already crossed). One quiet
+  // success beat in the min-order case; otherwise nothing to nudge.
+  if (minOrderPaise > 0) return { kind: "min-order-met", metMinimum: true }
+  return { kind: "hidden" }
+}
+
+export function MinOrderStrip({
+  storeId,
+  minOrderPaise,
+  freeDeliveryThresholdPaise,
+}: MinOrderStripProps) {
   const cart = useCart()
   const cartItems = cart.totalItems()
   const cartStoreId = cart.storeId
   const subtotal = cart.subtotalPaise()
   const fill = useMotionPreset(tweens.route)
 
-  const shouldShow =
-    minOrderPaise > 0 &&
-    cartItems > 0 &&
-    cartStoreId === storeId
+  // Gate before computing — cart empty / scoped to another store hides
+  // unconditionally regardless of store config.
+  const scopedHere = cartItems > 0 && cartStoreId === storeId
+  const stage = scopedHere
+    ? computeStage(subtotal, minOrderPaise, freeDeliveryThresholdPaise)
+    : { kind: "hidden" as const }
 
-  const remaining = Math.max(0, minOrderPaise - subtotal)
-  const metMinimum = remaining === 0
-  const pct = Math.min(100, Math.round((subtotal / minOrderPaise) * 100))
+  const shouldShow = stage.kind !== "hidden"
 
   return (
     <AnimatePresence initial={false}>
@@ -62,56 +107,92 @@ export function MinOrderStrip({ storeId, minOrderPaise }: MinOrderStripProps) {
           transition={fill}
           className="overflow-hidden"
         >
-          <div
-            role="status"
-            aria-live="polite"
-            className={cn(
-              "px-4 py-2 border-b",
-              metMinimum
-                ? "bg-success-soft border-success/30"
-                : "bg-warning-soft border-warning/30",
-            )}
-          >
-            <div className="max-w-md mx-auto">
-              <p
-                className={cn(
-                  "text-[12px] font-semibold leading-tight flex items-center gap-1.5",
-                  metMinimum ? "text-success" : "text-warning-foreground",
-                )}
-              >
-                {metMinimum ? (
-                  <>
-                    <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-                    You&rsquo;re good — minimum order reached
-                  </>
-                ) : (
-                  <>
-                    Add{" "}
-                    <span className="tabular-nums">
-                      {formatPriceFromPaise(remaining)}
-                    </span>{" "}
-                    more to place this order
-                  </>
-                )}
-              </p>
-              <div
-                aria-hidden
-                className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-card/60"
-              >
-                <motion.div
-                  initial={false}
-                  animate={{ width: `${pct}%` }}
-                  transition={fill}
-                  className={cn(
-                    "h-full rounded-full",
-                    metMinimum ? "bg-success" : "bg-primary",
-                  )}
-                />
-              </div>
-            </div>
-          </div>
+          <StripBody stage={stage} fill={fill} />
         </motion.div>
       ) : null}
     </AnimatePresence>
+  )
+}
+
+function StripBody({
+  stage,
+  fill,
+}: {
+  stage: Exclude<Stage, { kind: "hidden" }>
+  fill: ReturnType<typeof useMotionPreset>
+}) {
+  // Three visual treatments, all using the same skeleton + progress bar
+  // so the transition between them is just a content swap, never a
+  // height jump.
+  const isMinOrder = stage.kind === "min-order"
+  const isMinMet = stage.kind === "min-order-met"
+  const isFreeDelivery = stage.kind === "free-delivery"
+
+  const surface = isMinOrder
+    ? "bg-warning-soft border-warning/30"
+    : isFreeDelivery
+      ? "bg-success-soft border-success/30"
+      : "bg-success-soft border-success/30"
+
+  const textTone = isMinOrder
+    ? "text-warning-foreground"
+    : "text-success"
+
+  const barTone = isMinOrder
+    ? "bg-primary"
+    : isFreeDelivery
+      ? "bg-success"
+      : "bg-success"
+
+  return (
+    <div role="status" aria-live="polite" className={cn("px-4 py-2 border-b", surface)}>
+      <div className="max-w-md mx-auto">
+        <p
+          className={cn(
+            "text-[12px] font-semibold leading-tight flex items-center gap-1.5",
+            textTone,
+          )}
+        >
+          {isMinOrder ? (
+            <>
+              Add{" "}
+              <span className="tabular-nums">
+                {formatPriceFromPaise(stage.remaining)}
+              </span>{" "}
+              more to place this order
+            </>
+          ) : isFreeDelivery ? (
+            <>
+              <Truck className="size-3.5" strokeWidth={2.5} aria-hidden />
+              Add{" "}
+              <span className="tabular-nums">
+                {formatPriceFromPaise(stage.remaining)}
+              </span>{" "}
+              for free delivery
+            </>
+          ) : (
+            <>
+              <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
+              You&rsquo;re good — minimum order reached
+            </>
+          )}
+        </p>
+        {/* Progress bar only when there's an active target to fill against;
+            the "minimum reached" success beat doesn't need one. */}
+        {(isMinOrder || isFreeDelivery) && (
+          <div
+            aria-hidden
+            className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-card/60"
+          >
+            <motion.div
+              initial={false}
+              animate={{ width: `${stage.pct}%` }}
+              transition={fill}
+              className={cn("h-full rounded-full", barTone)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

@@ -97,7 +97,9 @@ export function CouponCarousel({
 function Header() {
   return (
     <h3 className="flex items-center gap-1.5 text-base font-semibold">
-      <Sparkles className="size-4 text-primary" aria-hidden />
+      {/* DP-9: offers section header lives in the savings role (rose),
+          not the action role (green). */}
+      <Sparkles className="size-4 text-discount" aria-hidden />
       Offers for you
     </h3>
   )
@@ -138,11 +140,11 @@ function CouponCard({
       whileTap={{ scale: 0.995 }}
       transition={tap}
       className={cn(
-        // Visible Rausch tint with a subtle warm-to-light gradient — much
-        // more present than the previous 5% wash so the card actually reads
-        // as a "deal card", not a faint surface.
-        "overflow-hidden rounded-[var(--radius-md)] border border-primary/15",
-        "bg-gradient-to-br from-primary/12 via-primary/6 to-primary/3",
+        // DP-9: coupon cards are SAVINGS surfaces → discount role (rose),
+        // not the action role. Card reads as "deal" instantly without
+        // competing with the ADD chips in the rail above.
+        "overflow-hidden rounded-[var(--radius-md)] border border-discount/15",
+        "bg-gradient-to-br from-discount/12 via-discount/6 to-discount/3",
         // Lock to a uniform card height so the rail doesn't lurch when one
         // coupon has a longer subline than another. h-36 fits 2-line subline
         // + expiry + code row comfortably; cards with less content just
@@ -153,9 +155,9 @@ function CouponCard({
       <div className="flex h-full">
         {/* Left badge column — icon stacked over scope label, dashed cut.
             Slightly stronger tint than the body for the "ticket stub" feel. */}
-        <div className="flex w-16 shrink-0 flex-col items-center justify-center gap-1.5 border-r border-dashed border-primary/30 bg-primary/5 py-5">
+        <div className="flex w-16 shrink-0 flex-col items-center justify-center gap-1.5 border-r border-dashed border-discount/30 bg-discount/5 py-5">
           <Icon
-            className={cn("size-6", isGlobal ? "text-primary" : "text-luxe")}
+            className="size-6 text-discount"
             aria-hidden
           />
           <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
@@ -192,9 +194,13 @@ function CouponCard({
               className={cn(
                 "ml-auto inline-flex h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold",
                 "border transition-colors",
+                // DP-9: the Copy button lives inside a discount card, so
+                // the resting outline rides the discount role. Copied
+                // state stays success so the "you got it" beat reads as
+                // confirmation, not another savings cue.
                 copied
                   ? "border-success bg-success-soft text-success"
-                  : "border-primary bg-card text-primary hover:bg-primary/5"
+                  : "border-discount bg-card text-discount hover:bg-discount/5"
               )}
             >
               <Copy className="size-3.5" aria-hidden />

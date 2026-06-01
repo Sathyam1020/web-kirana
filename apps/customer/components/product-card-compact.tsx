@@ -45,11 +45,14 @@ export function ProductCardCompact({
   const inCart = cart.itemCount(product.id)
 
   const hasDiscount = product.effectivePricePaise < product.pricePaise
-  const discountLabel = !hasDiscount
+  // The ribbon stacks two lines: a big amount on top and "OFF" beneath.
+  // Splitting here so the visual chrome stays a pure render concern.
+  const discountTopLine = !hasDiscount
     ? null
     : product.discountType === "PERCENT" && product.discountValue !== null
-      ? `${product.discountValue}% OFF`
-      : `${formatPriceFromPaise(product.pricePaise - product.effectivePricePaise)} OFF`
+      ? `${product.discountValue}%`
+      : formatPriceFromPaise(product.pricePaise - product.effectivePricePaise)
+  const discountAriaLabel = discountTopLine ? `${discountTopLine} off` : null
 
   const tap = useMotionPreset(springs.tap)
   const oos = !product.isAvailable
@@ -80,9 +83,30 @@ export function ProductCardCompact({
           rounded="rounded-[var(--radius-md)]"
           fallback={<ShoppingBag className="size-6 text-muted-foreground" />}
         />
-        {discountLabel && !oos ? (
-          <span className="absolute top-1.5 left-1.5 rounded-[var(--radius-sm)] bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground shadow-card">
-            {discountLabel}
+        {discountTopLine && !oos ? (
+          // DP-9.1: Blinkit-style ribbon hanging from the top-left of the
+          // product image. clip-path carves a V-notch in the bottom edge
+          // so the badge reads as a "banner" instead of a rounded pill.
+          // The drop-shadow filter (not box-shadow) respects the clip
+          // path so the shadow follows the notched silhouette.
+          <span
+            aria-label={discountAriaLabel ?? undefined}
+            role="img"
+            className={cn(
+              "absolute top-0 left-2 z-10 select-none pointer-events-none",
+              "w-9 pt-1 pb-3",
+              "flex flex-col items-center justify-start",
+              "bg-discount text-discount-foreground",
+              "text-[10px] font-extrabold leading-[1.05] tracking-wide",
+              "[filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.22))]",
+            )}
+            style={{
+              clipPath:
+                "polygon(0 0, 100% 0, 100% 100%, 50% 70%, 0 100%)",
+            }}
+          >
+            <span className="tabular-nums">{discountTopLine}</span>
+            <span className="text-[8px] tracking-[0.04em] -mt-px">OFF</span>
           </span>
         ) : null}
         {oos ? (

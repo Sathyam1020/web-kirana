@@ -11,9 +11,10 @@ import { Label } from "@workspace/ui/components/label"
 import { SafeImage } from "@workspace/ui/components/safe-image"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Switch } from "@workspace/ui/components/switch"
+import { cn } from "@workspace/ui/lib/utils"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Image as ImageIcon, Loader2, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { Check, Clock, Image as ImageIcon, Loader2, MapPin, Trash2, Wallet } from "lucide-react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { NotificationToggle } from "@/components/notification-toggle"
 import { describeApiError } from "@/lib/format"
@@ -130,6 +131,20 @@ export default function SettingsPage() {
           />
         </Card>
       )}
+
+      {/* IP-1 — Delivery fees + minimum order. Three numeric fields with a
+          live preview line so the owner sees exactly what the customer
+          will read on the cart. Saved together in one PATCH. */}
+      {store && <DeliveryFeesCard store={store} />}
+
+      {/* IP-1 — Operating hours + manual override. Two HH:MM inputs (native
+          mobile time pickers) + a toggle. Cron auto-flips `isOpen` against
+          these hours every 15 min IST. */}
+      {store && <OperatingHoursCard store={store} />}
+
+      {/* IP-1 — Delivery radius. Range 500 m – 25 km. Owners on the edge
+          of a service area reach the adjacent neighbourhood. */}
+      {store && <DeliveryRadiusCard store={store} />}
 
       {/* Store cover */}
       <Card className="p-5 space-y-3">
@@ -258,5 +273,339 @@ export default function SettingsPage() {
         )}
       </Card>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// IP-1 — Store config cards. Inline components so they share the parent's
+// query-client invalidation pattern without prop-drilling api/queryClient.
+// Each card holds its own form state seeded from `store` and resyncs when
+// the server-side value changes (after a Save round-trip).
+// ---------------------------------------------------------------------------
+
+function useStoreFieldMutation(successMessage: string) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (patch: Parameters<typeof api.stores.updateMine>[0]) =>
+      api.stores.updateMine(patch),
+    onSuccess: (next: StoreOwnerView) => {
+      queryClient.setQueryData(["stores", "me"], next)
+      toast.success(successMessage)
+    },
+    onError: (err) => toast.error(describeApiError(err)),
+  })
+}
+
+function paiseToRupeeString(p: number): string {
+  // Display whole-rupee when the value is a clean multiple of 100; the
+  // owner rarely cares about paise precision below ₹1 (delivery fees,
+  // min orders are always rounded). Falls back to two-decimal otherwise.
+  return p % 100 === 0 ? String(p / 100) : (p / 100).toFixed(2)
+}
+
+function rupeesToPaise(input: string): number | null {
+  const trimmed = input.trim()
+  if (trimmed === "") return 0
+  const n = Number(trimmed)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n * 100)
+}
+
+function DeliveryFeesCard({ store }: { store: StoreOwnerView }) {
+  const mutation = useStoreFieldMutation("Delivery settings saved")
+  const [minRs, setMinRs] = useState(paiseToRupeeString(store.minOrderPaise))
+  const [feeRs, setFeeRs] = useState(paiseToRupeeString(store.baseDeliveryFeePaise))
+  const [thresholdRs, setThresholdRs] = useState(
+    paiseToRupeeString(store.freeDeliveryThresholdPaise),
+  )
+
+  // Resync local state if the server values change (another tab, mutation
+  // completed). Without this, after Save the inputs would still show the
+  // pre-rounded text the owner typed.
+  useEffect(() => {
+    setMinRs(paiseToRupeeString(store.minOrderPaise))
+    setFeeRs(paiseToRupeeString(store.baseDeliveryFeePaise))
+    setThresholdRs(paiseToRupeeString(store.freeDeliveryThresholdPaise))
+  }, [store.minOrderPaise, store.baseDeliveryFeePaise, store.freeDeliveryThresholdPaise])
+
+  const minPaise = rupeesToPaise(minRs)
+  const feePaise = rupeesToPaise(feeRs)
+  const thresholdPaise = rupeesToPaise(thresholdRs)
+  const allValid = minPaise !== null && feePaise !== null && thresholdPaise !== null
+
+  const dirty =
+    allValid &&
+    (minPaise !== store.minOrderPaise ||
+      feePaise !== store.baseDeliveryFeePaise ||
+      thresholdPaise !== store.freeDeliveryThresholdPaise)
+
+  // Preview line — mirrors what the customer cart will render so the owner
+  // can sanity-check the rule without leaving Settings.
+  const preview = (() => {
+    if (!allValid) return "Enter valid amounts to preview."
+    const parts: string[] = []
+    if (minPaise > 0) parts.push(`Min order ₹${minPaise / 100}`)
+    if (feePaise === 0) {
+      parts.push("Free delivery on every order")
+    } else if (thresholdPaise > 0) {
+      parts.push(`₹${feePaise / 100} delivery below ₹${thresholdPaise / 100}, free above`)
+    } else {
+      parts.push(`Flat ₹${feePaise / 100} delivery on every order`)
+    }
+    return `Customer sees: ${parts.join(" · ")}`
+  })()
+
+  function onSave() {
+    if (!dirty || !allValid) return
+    mutation.mutate({
+      minOrderPaise: minPaise,
+      baseDeliveryFeePaise: feePaise,
+      freeDeliveryThresholdPaise: thresholdPaise,
+    })
+  }
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Wallet className="size-4 text-muted-foreground" aria-hidden />
+        <h2 className="font-semibold">Delivery fees & minimum order</h2>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-4">
+        <RupeeField
+          id="min-order"
+          label="Min order"
+          value={minRs}
+          onChange={setMinRs}
+          hint="0 = no minimum"
+        />
+        <RupeeField
+          id="base-fee"
+          label="Delivery fee"
+          value={feeRs}
+          onChange={setFeeRs}
+          hint="Capped at ₹500"
+        />
+        <RupeeField
+          id="free-threshold"
+          label="Free above"
+          value={thresholdRs}
+          onChange={setThresholdRs}
+          hint="0 = no free tier"
+        />
+      </div>
+      <p
+        className={cn(
+          "text-xs leading-relaxed",
+          allValid ? "text-muted-foreground" : "text-destructive",
+        )}
+      >
+        {preview}
+      </p>
+      <Button onClick={onSave} disabled={!dirty || mutation.isPending} className="w-full sm:w-auto">
+        {mutation.isPending && <Loader2 className="size-4 animate-spin" />}
+        Save changes
+      </Button>
+    </Card>
+  )
+}
+
+function RupeeField({
+  id,
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (v: string) => void
+  hint?: string
+}) {
+  return (
+    <div>
+      <Label htmlFor={id} className="mb-1.5 block">
+        {label}
+      </Label>
+      <div className="relative">
+        <span
+          aria-hidden
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground tabular-nums"
+        >
+          ₹
+        </span>
+        <Input
+          id={id}
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="pl-7 tabular-nums"
+        />
+      </div>
+      {hint ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function OperatingHoursCard({ store }: { store: StoreOwnerView }) {
+  const mutation = useStoreFieldMutation("Operating hours saved")
+  const manualMutation = useStoreFieldMutation(
+    store.manualClosed ? "Store reopened" : "Store manually closed",
+  )
+  const [openTime, setOpenTime] = useState(store.openTime)
+  const [closeTime, setCloseTime] = useState(store.closeTime)
+
+  useEffect(() => {
+    setOpenTime(store.openTime)
+    setCloseTime(store.closeTime)
+  }, [store.openTime, store.closeTime])
+
+  const valid =
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(openTime) &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(closeTime) &&
+    openTime !== closeTime
+  const dirty = valid && (openTime !== store.openTime || closeTime !== store.closeTime)
+
+  function onSaveHours() {
+    if (!dirty || !valid) return
+    mutation.mutate({ openTime, closeTime })
+  }
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Clock className="size-4 text-muted-foreground" aria-hidden />
+        <h2 className="font-semibold">Operating hours</h2>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="open-time" className="mb-1.5 block">
+            Opens at
+          </Label>
+          <Input
+            id="open-time"
+            type="time"
+            value={openTime}
+            onChange={(e) => setOpenTime(e.target.value)}
+            className="tabular-nums"
+          />
+        </div>
+        <div>
+          <Label htmlFor="close-time" className="mb-1.5 block">
+            Closes at
+          </Label>
+          <Input
+            id="close-time"
+            type="time"
+            value={closeTime}
+            onChange={(e) => setCloseTime(e.target.value)}
+            className="tabular-nums"
+          />
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Indian Standard Time. Customers see &ldquo;Open&rdquo; / &ldquo;Closed&rdquo; based on these
+        hours automatically — checked every 15 minutes. Crossing midnight is fine
+        (e.g. open 21:00, close 01:00).
+      </p>
+      {!valid && (openTime !== "" && closeTime !== "") ? (
+        <p className="text-xs text-destructive">
+          Opening and closing time must be different valid times.
+        </p>
+      ) : null}
+      <Button onClick={onSaveHours} disabled={!dirty || mutation.isPending} className="w-full sm:w-auto">
+        {mutation.isPending && <Loader2 className="size-4 animate-spin" />}
+        Save hours
+      </Button>
+
+      {/* Manual override — separate row + immediate save (toggle UX). */}
+      <div className="border-t border-border-soft pt-4 flex items-center justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block font-medium text-sm">Manually closed</span>
+          <span className="block text-xs text-muted-foreground">
+            Emergency override. Customers see closed regardless of the hours
+            above.
+          </span>
+        </span>
+        <Switch
+          checked={store.manualClosed}
+          disabled={manualMutation.isPending}
+          onCheckedChange={(next) => manualMutation.mutate({ manualClosed: next })}
+          aria-label="Manually closed"
+        />
+      </div>
+    </Card>
+  )
+}
+
+function DeliveryRadiusCard({ store }: { store: StoreOwnerView }) {
+  const mutation = useStoreFieldMutation("Delivery radius saved")
+  const [km, setKm] = useState(String(store.deliveryRadiusMeters / 1000))
+
+  useEffect(() => {
+    setKm(String(store.deliveryRadiusMeters / 1000))
+  }, [store.deliveryRadiusMeters])
+
+  const parsed = Number(km)
+  const valid = Number.isFinite(parsed) && parsed >= 0.5 && parsed <= 25
+  const meters = valid ? Math.round(parsed * 1000) : null
+  const dirty = meters !== null && meters !== store.deliveryRadiusMeters
+
+  function onSave() {
+    if (!dirty || meters === null) return
+    mutation.mutate({ deliveryRadiusMeters: meters })
+  }
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <MapPin className="size-4 text-muted-foreground" aria-hidden />
+        <h2 className="font-semibold">Delivery radius</h2>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="radius-km" className="block">
+          How far you deliver (km)
+        </Label>
+        <div className="flex items-center gap-3">
+          <Input
+            id="radius-km"
+            type="number"
+            min={0.5}
+            max={25}
+            step={0.5}
+            inputMode="decimal"
+            value={km}
+            onChange={(e) => setKm(e.target.value)}
+            className="w-24 tabular-nums"
+          />
+          <input
+            type="range"
+            min={0.5}
+            max={25}
+            step={0.5}
+            value={valid ? parsed : 0.5}
+            onChange={(e) => setKm(e.target.value)}
+            className="flex-1 accent-primary"
+            aria-label="Delivery radius slider"
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          500 m – 25 km. Stores beyond this radius from a customer&rsquo;s
+          location won&rsquo;t appear in their nearby list.
+        </p>
+        {!valid ? (
+          <p className="text-xs text-destructive">
+            Enter a value between 0.5 and 25 km.
+          </p>
+        ) : null}
+      </div>
+      <Button onClick={onSave} disabled={!dirty || mutation.isPending} className="w-full sm:w-auto">
+        {mutation.isPending && <Loader2 className="size-4 animate-spin" />}
+        Save radius
+      </Button>
+    </Card>
   )
 }

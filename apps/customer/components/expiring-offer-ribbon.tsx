@@ -61,9 +61,13 @@ export function ExpiringOfferRibbon({ coupons }: ExpiringOfferRibbonProps) {
         "w-full inline-flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left",
         "border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "transition-colors",
+        // DP-9: an expiring coupon is a SAVINGS signal, not an action.
+        // Default tint moves off primary → discount (rose). Same-day
+        // escalation stays on warning since "expires in 2h" is genuine
+        // urgency, not just a discount.
         sameDay
           ? "border-warning/30 bg-warning-soft hover:bg-warning-soft/80"
-          : "border-primary/20 bg-primary/5 hover:bg-primary/10",
+          : "border-discount/20 bg-discount-soft hover:bg-discount/10",
       )}
     >
       <motion.span
@@ -78,7 +82,7 @@ export function ExpiringOfferRibbon({ coupons }: ExpiringOfferRibbonProps) {
           "inline-flex size-6 shrink-0 items-center justify-center rounded-full",
           sameDay
             ? "bg-warning/15 text-warning-foreground"
-            : "bg-primary/10 text-primary",
+            : "bg-discount/10 text-discount",
         )}
       >
         <Clock className="size-3.5" />
@@ -90,7 +94,7 @@ export function ExpiringOfferRibbon({ coupons }: ExpiringOfferRibbonProps) {
         {headline(coupon)}
         <span className="mx-1 opacity-40">·</span>
         <span
-          className={sameDay ? "text-warning-foreground" : "text-primary"}
+          className={sameDay ? "text-warning-foreground" : "text-discount"}
         >
           {label}
         </span>

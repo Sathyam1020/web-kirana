@@ -77,6 +77,18 @@
   --color-info-soft: var(--info-soft);
   --color-info-foreground: var(--info-foreground);
 
+  /* DP-9: 3-role color system. Primary green is the ACTION color;
+     discount (rose) is for SAVINGS surfaces; rating (amber) is for
+     QUALITY/favorite signals. Keeping these as distinct roles stops
+     green from doing all three jobs at once. */
+  --color-discount: var(--discount);
+  --color-discount-soft: var(--discount-soft);
+  --color-discount-foreground: var(--discount-foreground);
+
+  --color-rating: var(--rating);
+  --color-rating-soft: var(--rating-soft);
+  --color-rating-foreground: var(--rating-foreground);
+
   --color-fresh: var(--fresh);
   --color-best-seller: var(--best-seller);
   --color-limited: var(--limited);
@@ -235,6 +247,22 @@
   --info-foreground: #ffffff;
 
   /* ========================================
+     DP-9 — DISCOUNT (savings) + RATING (quality)
+     Distinct visual roles so green can stop doing every job. Rose for
+     savings surfaces (% off badges, coupon cards, expiring ribbons);
+     amber for trust signals (favorite stars, ratings, top-rated).
+     Tints sit ~50% saturation so they read as quiet status, not neon.
+     ======================================== */
+
+  --discount: #e11d48;             /* rose-600 — savings */
+  --discount-soft: #fff1f3;        /* near rose-50, slightly warmer */
+  --discount-foreground: #ffffff;
+
+  --rating: #f59e0b;               /* amber-500 — quality / favorite */
+  --rating-soft: #fef3c7;          /* amber-100 */
+  --rating-foreground: #1c1c1c;
+
+  /* ========================================
      PRODUCT TAGS — grounded, not neon.
      Fresh used to be #22C55E (candy green); the new value sits in
      Blinkit's range where green is a CTA + verification color, not
@@ -332,6 +360,17 @@
   --info: #60a5fa;
   --info-soft: rgba(96, 165, 250, 0.16);
   --info-foreground: #ffffff;
+
+  /* DP-9 — discount + rating tokens for dark mode. Soft tints use rgba
+     of the saturated value so they sit on the dark grays without
+     screaming, mirroring how success/warning behave in dark mode. */
+  --discount: #f43f5e;              /* rose-500 reads better in dark */
+  --discount-soft: rgba(244, 63, 94, 0.16);
+  --discount-foreground: #ffffff;
+
+  --rating: #fbbf24;                /* amber-400 in dark */
+  --rating-soft: rgba(251, 191, 36, 0.16);
+  --rating-foreground: #1c1c1c;
 
   /* DP-7 dark-mode tags — same grounding philosophy as light mode.
      #4ADE80 was Tailwind green-400 — pure radium against the dark grays. */

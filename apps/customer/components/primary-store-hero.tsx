@@ -110,7 +110,10 @@ export function PrimaryStoreHero({
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-full",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  favorited ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                  // DP-9: favorite is a QUALITY/trust signal → amber
+                  // rating role, not the action role. Stops the star from
+                  // competing with the ADD buttons below it.
+                  favorited ? "text-rating" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Star
@@ -125,13 +128,15 @@ export function PrimaryStoreHero({
                 whileTap={{ scale: tapScale }}
                 transition={tap}
                 className={cn(
-                  // DP-8: promote "Change" to a count-bearing chip so the
-                  // optionality is visible above the fold for first-time
-                  // users. Falls back to plain "Change" when there's only
-                  // one store nearby.
+                  // DP-8: count-bearing chip so optionality is visible
+                  // above the fold. DP-9: neutral chrome instead of
+                  // primary — the chip is a quiet affordance, not THE
+                  // action (the ADD buttons own that role). Keeps the
+                  // hero from spawning three primary-coloured pills in
+                  // the same row.
                   "shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full",
-                  "text-[11px] font-bold text-primary border border-primary/30 bg-primary/5",
-                  "hover:bg-primary/10 transition-colors",
+                  "text-[11px] font-semibold text-foreground/80 border border-border bg-surface-soft",
+                  "hover:bg-surface-muted hover:text-foreground transition-colors",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
                 aria-label={
@@ -143,7 +148,7 @@ export function PrimaryStoreHero({
                 Change
                 {nearbyCount > 1 ? (
                   <>
-                    <span aria-hidden className="text-primary/50">·</span>
+                    <span aria-hidden className="text-muted-foreground/60">·</span>
                     <span className="tabular-nums">{nearbyCount}</span>
                   </>
                 ) : null}
@@ -206,6 +211,18 @@ export function PrimaryStoreHero({
               />
               {store.isOpen ? "Open" : "Closed"}
             </span>
+            {/* IP-1 — when the store is closed, surface the opening time
+                inline so the customer knows when to come back without
+                having to read the banner below. Tabular nums keep the
+                "07:00" aligned with the rest of the meta line. */}
+            {!store.isOpen && store.openTime ? (
+              <>
+                <span aria-hidden className="text-muted-foreground/60">·</span>
+                <span className="tabular-nums text-muted-foreground">
+                  Opens at {store.openTime}
+                </span>
+              </>
+            ) : null}
             {store.minOrderPaise > 0 ? (
               <>
                 <span aria-hidden>·</span>

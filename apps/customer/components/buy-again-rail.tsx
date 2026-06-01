@@ -73,14 +73,14 @@ export function BuyAgainRail({
   const reorderable = reorderableItems.length > 0
 
   return (
-    <section aria-label={`Buy again from ${storeName}`} className="space-y-3">
+    <section aria-label="Buy again" className="space-y-3">
       {/* Section header — title left, single Reorder chip right. Tap
           opens the BuyAgainSheet (which shows item list + Reorder all
           CTA). Dropped the separate "See all" link — it did the same
           thing, so two affordances was redundant. */}
       <div className="flex items-end justify-between gap-2">
         <h3 className="text-[15px] font-semibold min-w-0 truncate">
-          Buy again from <span className="text-primary">{storeName}</span>
+          Buy again
         </h3>
         {reorderable ? (
           <motion.button

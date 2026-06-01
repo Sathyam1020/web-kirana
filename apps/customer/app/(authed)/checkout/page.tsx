@@ -145,6 +145,30 @@ export default function CheckoutPage() {
         toast.error("This store doesn’t deliver to that address")
         return
       }
+      // IP-1: backend enforces minimum order at placement. The MinOrderStrip
+      // nudges before this fires, but if the customer reached checkout with
+      // a sub-min cart anyway (e.g. items removed mid-flow), surface the
+      // gap honestly using the requiredPaise / actualPaise the server
+      // returned and bounce back to /cart so they can top it up.
+      if (err instanceof ApiError && err.code === "MIN_ORDER_NOT_MET") {
+        const details = err.details as
+          | { requiredPaise?: number; actualPaise?: number }
+          | undefined
+        if (
+          details !== undefined &&
+          typeof details.requiredPaise === "number" &&
+          typeof details.actualPaise === "number"
+        ) {
+          const shortBy = details.requiredPaise - details.actualPaise
+          toast.error(
+            `Add ${formatPriceFromPaise(shortBy)} more to meet this store's minimum order`,
+          )
+        } else {
+          toast.error("Cart is below this store's minimum order")
+        }
+        router.replace("/cart")
+        return
+      }
       toast.error(describeApiError(err))
     },
   })
