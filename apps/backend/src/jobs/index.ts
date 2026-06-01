@@ -2,7 +2,10 @@ import cron from "node-cron"
 import { env } from "../config/env.js"
 import { logger } from "../lib/logger.js"
 import { autoCancelStalePlacedOrders } from "../modules/orders/orders.service.js"
-import { resetAvailabilityForOptedInStores } from "../modules/stores/stores.service.js"
+import {
+  autoOpenCloseStores,
+  resetAvailabilityForOptedInStores,
+} from "../modules/stores/stores.service.js"
 import { retryFailedWhatsApp } from "../notifications/providers/whatsapp.js"
 
 /**
@@ -52,6 +55,15 @@ export function registerJobs(): void {
     },
     { timezone: "Asia/Kolkata" },
   )
+
+  // IP-1 — auto-open / auto-close based on Store.openTime / closeTime, IST.
+  // 15 min cadence keeps "Opens at 07:00" pills accurate to ±14 min, which
+  // is fine for kirana surfaces (an order against a closed store is rejected
+  // at /v1/stores/nearby anyway, so the worst-case is a brief stale label).
+  // Stores with manualClosed=true are skipped entirely inside the service fn.
+  cron.schedule("*/15 * * * *", () => {
+    runGuarded("auto-store-open-close", () => autoOpenCloseStores())
+  })
 
   logger.info("cron: jobs registered")
 }

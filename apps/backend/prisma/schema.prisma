@@ -295,6 +295,23 @@ model Store {
   deliveryRadiusMeters Int @default(3000)
   minOrderPaise        Int @default(0)
 
+  // IP-1 — fee + free-above-threshold model. Both default 0 so an existing
+  // store that doesn't touch settings keeps charging no fee. `compute…` at
+  // placement (orders.service) snapshots the result onto Order.
+  baseDeliveryFeePaise       Int @default(0)
+  freeDeliveryThresholdPaise Int @default(0)
+
+  // IP-1 — operating hours, IST wall-clock strings ("HH:MM"). Defaults
+  // mirror typical kirana hours so the auto-open/close cron behaves the
+  // same way for new + legacy rows. Crossing midnight is allowed (open
+  // 21:00, close 01:00) — the cron handles it.
+  openTime  String @default("07:00")
+  closeTime String @default("22:00")
+
+  // IP-1 — emergency override. When true, store reads as closed regardless
+  // of hours; the cron skips flipping `isOpen` for these rows.
+  manualClosed Boolean @default(false)
+
   addressLine String
   city        String
   pincode     String

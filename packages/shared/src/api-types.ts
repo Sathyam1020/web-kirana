@@ -105,6 +105,13 @@ export interface StoreOwnerView {
   longitude: string
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — owner-visible fee + threshold + hours + emergency override.
+  // manualClosed is owner-only (customers see resulting `isOpen` only).
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
+  manualClosed: boolean
   addressLine: string
   city: string
   pincode: string
@@ -124,6 +131,13 @@ export interface StorePublicView {
   longitude: string
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — surfaced publicly so the customer cart can render free-delivery
+  // progress + the delivery-fee bill row without a second fetch. `openTime`
+  // and `closeTime` let the store page show "Opens at 07:00" when closed.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
   addressLine: string
   city: string
   pincode: string

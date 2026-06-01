@@ -72,6 +72,14 @@ export interface CreateStoreBody {
   longitude: number
   deliveryRadiusMeters?: number
   minOrderPaise?: number
+  // IP-1 — all optional, defaults handled server-side. `openTime` /
+  // `closeTime` validated as HH:MM. `baseDeliveryFeePaise` capped at
+  // ₹500 server-side; `freeDeliveryThresholdPaise` at ₹20,000.
+  baseDeliveryFeePaise?: number
+  freeDeliveryThresholdPaise?: number
+  openTime?: string
+  closeTime?: string
+  manualClosed?: boolean
   addressLine: string
   city: string
   pincode: string
@@ -87,6 +95,12 @@ export type UpdateStoreBody = Partial<{
   longitude: number
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — owner-editable via Settings.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
+  manualClosed: boolean
   addressLine: string
   city: string
   pincode: string

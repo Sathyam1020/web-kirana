@@ -124,3 +124,21 @@ export class InvalidTransitionError extends AppError {
     super(409, ErrorCode.INVALID_TRANSITION, message)
   }
 }
+
+/**
+ * IP-1: cart subtotal is below the store's configured minimum order amount.
+ * `details` carries `{ requiredPaise, actualPaise }` so the client can render
+ * "Add ₹X more to place this order" without recomputing from store state.
+ * 400 (not 409) — this isn't a race or a conflict, it's a request that
+ * doesn't satisfy the precondition.
+ */
+export class MinOrderNotMetError extends AppError {
+  constructor(requiredPaise: number, actualPaise: number) {
+    super(
+      400,
+      ErrorCode.MIN_ORDER_NOT_MET,
+      "Cart subtotal is below the store's minimum order amount",
+      { requiredPaise, actualPaise },
+    )
+  }
+}

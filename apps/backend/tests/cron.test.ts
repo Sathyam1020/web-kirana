@@ -11,7 +11,11 @@ import request from "supertest"
 import { buildApp } from "../src/app.js"
 import { prisma } from "../src/db/prisma.js"
 import { autoCancelStalePlacedOrders } from "../src/modules/orders/orders.service.js"
-import { resetAvailabilityForOptedInStores } from "../src/modules/stores/stores.service.js"
+import {
+  autoOpenCloseStores,
+  isInsideHours,
+  resetAvailabilityForOptedInStores,
+} from "../src/modules/stores/stores.service.js"
 import { retryFailedWhatsApp } from "../src/notifications/providers/whatsapp.js"
 import {
   type AuthedCaller,
@@ -142,5 +146,113 @@ describe("opt-in daily availability reset", () => {
 describe("whatsapp retry", () => {
   it("no-ops when WhatsApp is unconfigured", async () => {
     expect(await retryFailedWhatsApp()).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// IP-1 — auto-open / auto-close based on Store.openTime / closeTime.
+// ---------------------------------------------------------------------------
+
+describe("isInsideHours — pure window-membership predicate", () => {
+  // Minutes-of-day fixtures
+  const t07 = 7 * 60
+  const t22 = 22 * 60
+  const t12 = 12 * 60
+  const t06 = 6 * 60
+  const t23 = 23 * 60
+  const t01 = 1 * 60
+  const t02 = 2 * 60
+
+  it("same-day window 07:00–22:00 is inside at 12:00 and outside at 06:00 / 22:00", () => {
+    expect(isInsideHours(t12, t07, t22)).toBe(true)
+    expect(isInsideHours(t06, t07, t22)).toBe(false)
+    expect(isInsideHours(t22, t07, t22)).toBe(false) // [open, close) — close itself is OUTSIDE
+    expect(isInsideHours(t07, t07, t22)).toBe(true)  // [open, close) — open itself is INSIDE
+  })
+
+  it("crossing-midnight window 21:00–01:00 is inside at 23:00 and outside at 02:00", () => {
+    const t21 = 21 * 60
+    expect(isInsideHours(t23, t21, t01)).toBe(true)  // after open, before midnight
+    expect(isInsideHours(t02, t21, t01)).toBe(false) // after close, before open
+    expect(isInsideHours(t12, t21, t01)).toBe(false)
+    expect(isInsideHours(t21, t21, t01)).toBe(true)  // open itself
+    expect(isInsideHours(t01, t21, t01)).toBe(false) // close itself
+  })
+})
+
+describe("autoOpenCloseStores", () => {
+  // The sweep scans every active not-manualClosed store in the test DB.
+  // On shared Neon (accumulated stores across many test runs) one sweep
+  // can take ~10–30s on per-row guarded updateMany. Bump the per-test
+  // timeout so we don't false-fail on test-data scale. The prod cron
+  // runs every 15 min so this latency is fine in production too.
+  it("flips isOpen to match the IST window and skips manualClosed=true", { timeout: 120_000 }, async () => {
+    // The shared cron-test store is the one we sweep. Set its hours to a
+    // tight window AROUND a known fixed "now" so we exercise both branches
+    // in one call without depending on real wall-clock time.
+    //
+    // We pick a "now" that is 12:00 IST regardless of when the test runs
+    // (the service fn takes a Date arg). With hours 07:00–22:00 the store
+    // SHOULD be open. With manualClosed=true it MUST stay closed.
+
+    // 1. Window contains 12:00 IST — expect cron to OPEN the store.
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { isOpen: false, manualClosed: false, openTime: "07:00", closeTime: "22:00" },
+    })
+    // 06:30 UTC == 12:00 IST. Fixed instant lets the test be timezone-portable.
+    const noonIst = new Date("2026-01-15T06:30:00.000Z")
+    let res = await autoOpenCloseStores(noonIst)
+    expect(res.opened).toBeGreaterThanOrEqual(1)
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeId } })).isOpen).toBe(true)
+
+    // 2. Window does NOT contain 12:00 IST (00:00–05:00) — expect CLOSE.
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { openTime: "00:00", closeTime: "05:00" },
+    })
+    res = await autoOpenCloseStores(noonIst)
+    expect(res.closed).toBeGreaterThanOrEqual(1)
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeId } })).isOpen).toBe(false)
+
+    // 3. manualClosed=true — even when hours would open the store, cron
+    //    skips it. Set hours that include noon IST, then verify isOpen
+    //    stays false because manualClosed forces it out of the sweep set.
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { manualClosed: true, openTime: "07:00", closeTime: "22:00", isOpen: false },
+    })
+    await autoOpenCloseStores(noonIst)
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeId } })).isOpen).toBe(false)
+
+    // Reset for the next describe block.
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { manualClosed: false, isOpen: true, openTime: "07:00", closeTime: "22:00" },
+    })
+  })
+
+  it("crossing-midnight window: open=21:00 close=01:00 is open at 23:00 IST", { timeout: 120_000 }, async () => {
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { isOpen: false, manualClosed: false, openTime: "21:00", closeTime: "01:00" },
+    })
+    // 17:30 UTC == 23:00 IST.
+    const elevenPmIst = new Date("2026-01-15T17:30:00.000Z")
+    const res = await autoOpenCloseStores(elevenPmIst)
+    expect(res.opened).toBeGreaterThanOrEqual(1)
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeId } })).isOpen).toBe(true)
+
+    // 20:30 UTC == 02:00 IST (next day) — outside the 21:00–01:00 window.
+    const twoAmIst = new Date("2026-01-15T20:30:00.000Z")
+    const res2 = await autoOpenCloseStores(twoAmIst)
+    expect(res2.closed).toBeGreaterThanOrEqual(1)
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeId } })).isOpen).toBe(false)
+
+    // Reset for the next test.
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { openTime: "07:00", closeTime: "22:00", isOpen: true },
+    })
   })
 })

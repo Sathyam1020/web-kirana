@@ -13,6 +13,7 @@ import {
   CartChangedError,
   ConflictError,
   InvalidTransitionError,
+  MinOrderNotMetError,
   NotFoundError,
   OutOfServiceAreaError,
   StoreClosedError,
@@ -246,6 +247,47 @@ function isUniqueViolation(err: unknown): boolean {
   )
 }
 
+// --- IP-1 helpers -------------------------------------------------------
+
+/**
+ * IP-1 — compute the delivery fee at placement from the store's current
+ * config. Snapshotted onto Order.deliveryFeePaise, so a later store-config
+ * change can't retroactively alter what the customer agreed to.
+ *
+ * Rules:
+ *   - threshold === 0          → "free delivery isn't offered"; charge base fee
+ *   - subtotal >= threshold > 0 → free (this is the upsell incentive)
+ *   - otherwise                → charge base fee
+ *
+ * Exported for tests + the future cart-side preview (the customer cart
+ * mirrors this so the bill row matches what placement will charge).
+ */
+export function computeDeliveryFeePaise(
+  subtotalPaise: number,
+  store: { baseDeliveryFeePaise: number; freeDeliveryThresholdPaise: number },
+): number {
+  if (store.freeDeliveryThresholdPaise > 0 && subtotalPaise >= store.freeDeliveryThresholdPaise) {
+    return 0
+  }
+  return store.baseDeliveryFeePaise
+}
+
+/**
+ * IP-1 — backend enforcement of `Store.minOrderPaise`. The cart strip
+ * nudges the user; this is the single source of truth that rejects
+ * an order whose subtotal hasn't crossed the threshold. Throws so
+ * callers don't have to remember to check the boolean. No-op when
+ * `minOrderPaise === 0` (store hasn't set a minimum).
+ */
+export function assertMinimumOrderMet(
+  subtotalPaise: number,
+  store: { minOrderPaise: number },
+): void {
+  if (store.minOrderPaise > 0 && subtotalPaise < store.minOrderPaise) {
+    throw new MinOrderNotMetError(store.minOrderPaise, subtotalPaise)
+  }
+}
+
 // --- Placement ----------------------------------------------------------
 
 export async function placeOrder(
@@ -351,6 +393,11 @@ export async function placeOrder(
           phone: true,
           isOpen: true,
           minOrderPaise: true,
+          // IP-1 — fee + free-above-threshold inputs for delivery-fee
+          // computation. Pulled here so the same SELECT covers both the
+          // open/closed gate and pricing without a second round-trip.
+          baseDeliveryFeePaise: true,
+          freeDeliveryThresholdPaise: true,
           deliveryRadiusMeters: true,
         },
       })
@@ -358,6 +405,9 @@ export async function placeOrder(
       if (!store.isOpen) throw new StoreClosedError()
 
       // 6. Subtotal from effective (discounted) prices + line snapshots.
+      //    IP-1: minOrder is enforced AFTER subtotal compute so the error
+      //    detail carries the actual sum. Throws MinOrderNotMetError when
+      //    Store.minOrderPaise > 0 and subtotal < that threshold.
       let itemsSubtotalPaise = 0
       const itemRows = body.cart.map((item) => {
         const p = byId.get(item.productId) as NonNullable<ReturnType<typeof byId.get>>
@@ -375,12 +425,10 @@ export async function placeOrder(
         }
       })
 
-      // 7. Minimum order.
-      if (itemsSubtotalPaise < store.minOrderPaise) {
-        throw new CartChangedError("Order is below the store's minimum", {
-          minOrderPaise: store.minOrderPaise,
-        })
-      }
+      // 7. Minimum order. IP-1: typed error with both required + actual
+      // paise in the details so the client can render "Add ₹X more" without
+      // recomputing from the store config it may not have cached.
+      assertMinimumOrderMet(itemsSubtotalPaise, store)
 
       // 8. Service area — delivery point within the store's radius.
       const lat = Number(address.latitude)
@@ -451,7 +499,9 @@ export async function placeOrder(
         couponTotalUsageLimit = coupon.totalUsageLimit
       }
 
-      const deliveryFeePaise = 0
+      // IP-1: real delivery fee from store config. Snapshotted onto Order
+      // so a tomorrow's fee change doesn't retro-alter this order.
+      const deliveryFeePaise = computeDeliveryFeePaise(itemsSubtotalPaise, store)
       const totalPaise = itemsSubtotalPaise - discountPaise + deliveryFeePaise
 
       // 10. Create the order + items + initial status-history entry.
