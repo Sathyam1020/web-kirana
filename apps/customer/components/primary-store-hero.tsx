@@ -27,17 +27,26 @@ import Link from "next/link"
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
 import { useFavorites } from "@/lib/favorites"
-import { formatDistance, formatEta } from "@/lib/format"
+import {
+  estimateEta,
+  formatDeliveryBy,
+  formatDistance,
+  formatEta,
+} from "@/lib/format"
 
 interface PrimaryStoreHeroProps {
   store: StoreNearbyHit
   stats: StoreTrustStats | undefined
+  /** Total nearby store count — surfaced next to the "Change" link so
+   *  first-time users see they have options without scrolling. */
+  nearbyCount: number
   onChangeStore: () => void
 }
 
 export function PrimaryStoreHero({
   store,
   stats,
+  nearbyCount,
   onChangeStore,
 }: PrimaryStoreHeroProps) {
   const tap = useMotionPreset(springs.tap)
@@ -45,6 +54,14 @@ export function PrimaryStoreHero({
   // into the /account/favorites page (DP-4).
   const favorited = useFavorites((s) => s.has(store.id))
   const toggleFavorite = useFavorites((s) => s.toggle)
+
+  // Deadline-framed ETA: prefer the live delivery average; otherwise use the
+  // straight-line estimate's upper bound so the promised arrival under-shoots
+  // rather than over-promises.
+  const etaIsLive = stats != null && stats.avgDeliveryMinutes !== null
+  const etaMinutes = etaIsLive
+    ? stats!.avgDeliveryMinutes!
+    : estimateEta(store.distanceMeters).max
 
   return (
     <section
@@ -108,24 +125,67 @@ export function PrimaryStoreHero({
                 whileTap={{ scale: tapScale }}
                 transition={tap}
                 className={cn(
-                  "shrink-0 text-xs font-semibold text-primary",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md",
-                  "px-1 py-0.5",
+                  // DP-8: promote "Change" to a count-bearing chip so the
+                  // optionality is visible above the fold for first-time
+                  // users. Falls back to plain "Change" when there's only
+                  // one store nearby.
+                  "shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-full",
+                  "text-[11px] font-bold text-primary border border-primary/30 bg-primary/5",
+                  "hover:bg-primary/10 transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
+                aria-label={
+                  nearbyCount > 1
+                    ? `Change store (${nearbyCount} nearby)`
+                    : "Change store"
+                }
               >
                 Change
+                {nearbyCount > 1 ? (
+                  <>
+                    <span aria-hidden className="text-primary/50">·</span>
+                    <span className="tabular-nums">{nearbyCount}</span>
+                  </>
+                ) : null}
               </motion.button>
             </div>
           </div>
 
-          {/* Meta line — ETA · distance · status */}
+          {/* Meta line — ETA · distance · status. When the store is OPEN
+              the ETA is deadline-framed ("by 7:42 pm") off the LIVE avg
+              when there's enough delivery sample (kept success-tinted +
+              live dot for trust), else off the straight-line estimate's
+              upper bound to under-promise. When CLOSED we drop the
+              deadline (no delivery is happening) and show the neutral
+              duration estimate instead. */}
           <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
-            <span className="inline-flex items-center gap-1">
-              <Clock className="size-3" aria-hidden />
-              <span className="tabular-nums">
-                {formatEta(store.distanceMeters)}
+            {store.isOpen ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 font-semibold",
+                  etaIsLive ? "text-success" : "text-foreground",
+                )}
+              >
+                {etaIsLive ? (
+                  <span
+                    aria-hidden
+                    className="inline-block size-1.5 rounded-full bg-success"
+                  />
+                ) : (
+                  <Clock className="size-3" aria-hidden />
+                )}
+                <span className="tabular-nums">
+                  {formatDeliveryBy(etaMinutes)}
+                </span>
               </span>
-            </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="size-3" aria-hidden />
+                <span className="tabular-nums">
+                  {formatEta(store.distanceMeters)}
+                </span>
+              </span>
+            )}
             <span aria-hidden>·</span>
             <span className="tabular-nums">
               {formatDistance(store.distanceMeters)}
@@ -146,24 +206,22 @@ export function PrimaryStoreHero({
               />
               {store.isOpen ? "Open" : "Closed"}
             </span>
-          </div>
-
-          {/* Min order line — reserves height when absent. */}
-          <p className="mt-1 text-xs text-muted-foreground min-h-4 leading-tight">
             {store.minOrderPaise > 0 ? (
               <>
-                Min order{" "}
-                <span className="text-foreground tabular-nums">
-                  ₹{(store.minOrderPaise / 100).toFixed(0)}
+                <span aria-hidden>·</span>
+                <span className="tabular-nums">
+                  Min ₹{(store.minOrderPaise / 100).toFixed(0)}
                 </span>
               </>
             ) : null}
-          </p>
+          </div>
+
+          {/* Trust stats inline within the right column (next to the
+              image, NOT below the hero). Pills hide individually when
+              the backend hasn't accumulated enough sample. */}
+          <StatsRow stats={stats} />
         </div>
       </div>
-
-      {/* Trust stats row — individual pills hide when null. */}
-      <StatsRow stats={stats} />
 
       {/* Closed banner */}
       {!store.isOpen ? (
@@ -182,7 +240,7 @@ export function PrimaryStoreHero({
 function StatsRow({ stats }: { stats: StoreTrustStats | undefined }) {
   const ordersPill =
     stats !== undefined && stats.ordersThisMonth >= 10
-      ? `${roundDown(stats.ordersThisMonth)}+ orders this month`
+      ? `${roundDown(stats.ordersThisMonth)}+ orders/mo`
       : null
   const avgPill =
     stats !== undefined && stats.avgDeliveryMinutes !== null
@@ -195,11 +253,20 @@ function StatsRow({ stats }: { stats: StoreTrustStats | undefined }) {
 
   if (ordersPill === null && avgPill === null && onTimePill === null) return null
 
+  // Compact pill row sits in the right column next to the image so the
+  // hero stays a single horizontal block, never a tall stack of stuff
+  // hanging below the image.
   return (
-    <div className="px-3 pb-3 -mt-1 flex items-center gap-1.5 flex-wrap">
-      {ordersPill ? <StatPill icon={<StoreIcon className="size-3" />} label={ordersPill} /> : null}
-      {avgPill ? <StatPill icon={<Timer className="size-3" />} label={avgPill} /> : null}
-      {onTimePill ? <StatPill icon={<Clock className="size-3" />} label={onTimePill} /> : null}
+    <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+      {ordersPill ? (
+        <StatPill icon={<StoreIcon className="size-2.5" />} label={ordersPill} />
+      ) : null}
+      {avgPill ? (
+        <StatPill icon={<Timer className="size-2.5" />} label={avgPill} />
+      ) : null}
+      {onTimePill ? (
+        <StatPill icon={<Clock className="size-2.5" />} label={onTimePill} />
+      ) : null}
     </div>
   )
 }
@@ -212,7 +279,7 @@ function StatPill({
   label: string
 }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-surface-soft text-[11px] font-medium text-muted-foreground tabular-nums">
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-surface-soft text-[10px] font-medium text-muted-foreground tabular-nums">
       {icon}
       {label}
     </span>

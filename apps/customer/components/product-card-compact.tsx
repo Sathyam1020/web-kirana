@@ -114,14 +114,18 @@ export function ProductCardCompact({
         </div>
       </div>
 
-      {/* ADD / stepper — DP-7: h-9 → h-8 keeps a comfortable 32px tap
-          target while shaving height off each card. */}
+      {/* ADD / stepper — DP-7 tone-down: ADD is the resting state, the
+          STEPPER is the engaged state. Blinkit's actual cards: ADD is a
+          subtle outlined chip; only after engaging does it switch to a
+          loud filled stepper. Mirrors that.
+          Both states share the same h-7 (28px) tap target so the layout
+          doesn't reflow when the morph happens. */}
       <div className="mt-auto pt-1.5 px-0.5">
         {oos ? (
           <button
             type="button"
             disabled
-            className="w-full inline-flex items-center justify-center h-8 rounded-full text-[11px] font-semibold text-muted-foreground border border-border bg-surface-soft"
+            className="w-full inline-flex items-center justify-center h-7 rounded-full text-[10px] font-semibold text-muted-foreground border border-border bg-surface-soft"
           >
             Notify me
           </button>
@@ -135,8 +139,13 @@ export function ProductCardCompact({
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={tap}
                 className={cn(
-                  "flex items-center justify-between h-8 rounded-full overflow-hidden w-full",
-                  "bg-primary text-primary-foreground shadow-card",
+                  // Engaged state stays in the SAME visual family as the
+                  // resting ADD chip — outlined, white surface, primary
+                  // border / icons / count. The count pulse on increment
+                  // (below) is the "you just added one" feedback; we
+                  // don't need a loud filled fill for that.
+                  "flex items-center justify-between h-7 rounded-full overflow-hidden w-full",
+                  "bg-card border border-primary text-primary",
                 )}
                 data-state="stepper"
               >
@@ -146,9 +155,9 @@ export function ProductCardCompact({
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Remove one ${product.name}`}
-                  className="h-8 px-2.5 inline-flex items-center justify-center"
+                  className="h-7 px-2 inline-flex items-center justify-center"
                 >
-                  <Minus className="size-3.5" strokeWidth={2.5} />
+                  <Minus className="size-3" strokeWidth={2.5} />
                 </motion.button>
                 <motion.span
                   key={inCart}
@@ -168,9 +177,9 @@ export function ProductCardCompact({
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Add one more ${product.name}`}
-                  className="h-8 px-2.5 inline-flex items-center justify-center"
+                  className="h-7 px-2 inline-flex items-center justify-center"
                 >
-                  <Plus className="size-3.5" strokeWidth={2.5} />
+                  <Plus className="size-3" strokeWidth={2.5} />
                 </motion.button>
               </motion.div>
             ) : (
@@ -185,16 +194,18 @@ export function ProductCardCompact({
                 transition={tap}
                 aria-label={`Add ${product.name} to cart`}
                 className={cn(
-                  // DP-6/DP-7: filled primary ADD (Blinkit/Zepto-native).
-                  // h-8 — 32px is the platform-recommended floor for tap
-                  // targets and lets ~3 more cards fit on a long scroll.
-                  "w-full inline-flex items-center justify-center gap-1.5 h-8 rounded-full",
-                  "bg-primary text-primary-foreground font-bold text-[11px] uppercase tracking-wide",
-                  "shadow-card hover:bg-primary-active transition-colors",
+                  // Resting-state ADD — outlined chip, white surface,
+                  // primary border + label. Filled was reading as a
+                  // billboard at full-width; this is Blinkit's actual
+                  // pattern: a clear affordance that doesn't out-shout
+                  // the product image / price above it.
+                  "w-full inline-flex items-center justify-center h-7 rounded-full",
+                  "bg-card border border-primary text-primary",
+                  "font-bold text-[11px] tracking-wide",
+                  "hover:bg-primary/5 transition-colors",
                 )}
                 data-state="add"
               >
-                <Plus className="size-3.5" strokeWidth={3} />
                 Add
               </motion.button>
             )}

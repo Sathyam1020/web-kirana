@@ -35,11 +35,13 @@ import { BuyAgainRail } from "@/components/buy-again-rail"
 import { ChooseStoreSheet } from "@/components/choose-store-sheet"
 import { CouponCarousel } from "@/components/coupon-carousel"
 import { DepartmentSections } from "@/components/department-sections"
+import { ExpiringOfferRibbon } from "@/components/expiring-offer-ribbon"
 import { HomeHeader } from "@/components/home-header"
 import {
   NoLocationIllustration,
   NoStoresIllustration,
 } from "@/components/illustrations"
+import { MinOrderStrip } from "@/components/min-order-strip"
 import { OtherStoresRail } from "@/components/other-stores-rail"
 import { PrimaryStoreHero } from "@/components/primary-store-hero"
 import { ProductRail } from "@/components/product-rail"
@@ -198,15 +200,32 @@ export default function HomePage() {
     }
   }
 
+  // --- Render buckets -----------------------------------------------------
+  // The home reveals progressively rather than behind a full-page gate:
+  //   1. Location not yet shared       → "Where are you?" empty state
+  //   2. First nearby fetch in flight  → HomeSkeleton (section-shaped)
+  //   3. Primary store derived         → hero + rails; each rail skeletons
+  //                                       itself off its own query so the
+  //                                       store paints the moment its id
+  //                                       is known, not after every query.
   return (
     <div className="min-h-svh bg-background pb-32">
       <HomeHeader />
 
+      {/* Min-order strip sits between the sticky header and the page
+          body — sticky-feeling by virtue of being attached to a sticky
+          header above and showing only when relevant. */}
+      {primaryStore ? (
+        <MinOrderStrip
+          storeId={primaryStore.id}
+          minOrderPaise={primaryStore.minOrderPaise}
+        />
+      ) : null}
+
       {/* Quick-commerce is mobile-first by nature. On tablet+, center a
-          phone-shaped column rather than stretching content edge-to-edge
-          (which left rails marooned on the left and stat pills floating
-          alone). max-w-md ≈ 448px keeps the feel of the design intact at
-          every viewport. */}
+          phone-shaped column rather than stretching content edge-to-edge.
+          max-w-md ≈ 448px keeps the feel of the design intact at every
+          viewport. */}
       <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {/* No location → ask for it */}
         {location === null && locStatus !== "requesting" ? (
@@ -222,7 +241,7 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {/* Loading the first nearby fetch */}
+        {/* Loading the first nearby fetch → section-shaped skeleton. */}
         {nearbyQuery.isPending && location !== null ? <HomeSkeleton /> : null}
 
         {/* Network errored */}
@@ -247,7 +266,9 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {/* Primary store hero + everything below */}
+        {/* Primary store hero + everything below — renders as soon as the
+            primary store id is known; each rail skeletons itself off its
+            own query so the store paints fast. */}
         {primaryStore ? (
           <motion.div
             key={primaryStore.id}
@@ -256,9 +277,14 @@ export default function HomePage() {
             transition={fadeIn}
             className="space-y-4"
           >
+            {/* Above-the-fold urgency: soonest-expiring coupon (≤48h).
+                Silent when nothing is expiring soon. */}
+            <ExpiringOfferRibbon coupons={couponsQuery.data?.items} />
+
             <PrimaryStoreHero
               store={primaryStore}
               stats={detailQuery.data?.stats}
+              nearbyCount={allStores.length}
               onChangeStore={() => setChooseStoreOpen(true)}
             />
 
@@ -345,12 +371,20 @@ export default function HomePage() {
   )
 }
 
+/**
+ * Section-shaped first-paint skeleton for the customer home — mirrors the
+ * real layout (hero → category grid → product rail → coupon → other
+ * stores) so the page settles in place instead of popping. Shown only
+ * while the first nearby fetch is in flight; once the primary store id is
+ * known the real sections take over and each rail handles its own
+ * lower-level loading state.
+ */
 function HomeSkeleton() {
   return (
     <div className="space-y-4">
       {/* Hero card */}
       <div className="rounded-[var(--radius-lg)] border border-border bg-card p-3 flex gap-3">
-        <Skeleton className="size-20 sm:size-24 rounded-[var(--radius-md)]" />
+        <Skeleton className="size-16 sm:size-20 rounded-[var(--radius-md)]" />
         <div className="flex-1 space-y-2">
           <Skeleton className="h-5 w-2/3" />
           <Skeleton className="h-3 w-1/2" />
@@ -373,7 +407,7 @@ function HomeSkeleton() {
           ))}
         </div>
       </div>
-      {/* Product rail skeleton (3-card horizontal scroll) */}
+      {/* Product rail skeleton (horizontal scroll) */}
       <div className="space-y-3">
         <Skeleton className="h-5 w-1/2" />
         <div className="flex gap-2 overflow-hidden">

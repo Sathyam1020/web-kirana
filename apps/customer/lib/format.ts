@@ -30,6 +30,20 @@ export function formatEta(meters: number): string {
   return `${min}–${max} mins`
 }
 
+/**
+ * Deadline-framed ETA for the home hero — turns a minutes estimate into a
+ * wall-clock arrival ("by 7:42 pm") off the current time, so the figure
+ * reads as a "get it by …" deadline instead of a flat duration. Estimate,
+ * not a live countdown: it refreshes on re-render, doesn't tick.
+ */
+export function formatDeliveryBy(minutes: number, now: Date = new Date()): string {
+  const arrival = new Date(now.getTime() + minutes * 60_000)
+  return `by ${arrival.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`
+}
+
 export function describeApiError(err: unknown): string {
   if (err && typeof err === "object" && "message" in err && typeof (err as { message?: unknown }).message === "string") {
     return (err as { message: string }).message
