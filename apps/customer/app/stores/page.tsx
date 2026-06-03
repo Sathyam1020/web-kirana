@@ -80,6 +80,11 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
+    // IP-2: Buy-Again shim. Order snapshots don't carry the full variant
+    // list (only the one the customer bought). The reorder rail re-adds
+    // that specific variant via the existing add-to-cart flow against
+    // the variantId stored on the order item; no chips needed here.
+    variants: [],
   }
 }
 

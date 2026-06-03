@@ -407,3 +407,49 @@ describe("Validation around searchAliases on Product create/update", () => {
     expect(res.body.data.product.searchAliases.sort()).toEqual(["bar", "foo"])
   })
 })
+
+// ---------------------------------------------------------------------------
+// IP-2 — variant names feed the product's tsvector via the migration's
+// trigger update. A search for "500ml" should hit a product whose only
+// "500ml" token lives on a variant, not on the product name.
+// ---------------------------------------------------------------------------
+
+describe("IP-2 — variant names match the product search", () => {
+  it("a search for '500ml' hits a product whose variant carries that size token", async () => {
+    const owner = await signupApprovedOwner(app, "Variant Search Owner")
+    await api()
+      .post("/v1/stores/me")
+      .set("Cookie", owner.cookieHeader)
+      .send({
+        name: "Variant Search Store",
+        phone: "+919999444444",
+        latitude: 12.9116,
+        longitude: 77.6473,
+        addressLine: "addr",
+        city: "Bengaluru",
+        pincode: "560102",
+      })
+    await api().patch("/v1/stores/me/open").set("Cookie", owner.cookieHeader).send({ isOpen: true })
+    const cats = await prisma.category.findMany({ take: 1 })
+    const subcategoryId = await ensureSubcategoryForOwner(owner, cats[0]!.id)
+
+    // Product name deliberately omits the size — only the variants carry it.
+    await api()
+      .post("/v1/stores/me/products")
+      .set("Cookie", owner.cookieHeader)
+      .send({
+        subcategoryId,
+        name: "Whisper Quiet Almond Milk",
+        pricePaise: 25000,
+        unit: "ML",
+        variants: [
+          { name: "500ml", unitValue: 500, unit: "ML", pricePaise: 25000, isDefault: true },
+          { name: "1L", unitValue: 1, unit: "L", pricePaise: 45000 },
+        ],
+      })
+
+    const res = await search("500ml")
+    expect(res.status).toBe(200)
+    expect(names(res)).toContain("Whisper Quiet Almond Milk")
+  })
+})

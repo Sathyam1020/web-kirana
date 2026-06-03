@@ -71,6 +71,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanupRun()
+  // IP-1 — restore every seed-owned store back to `isOpen=true` so the
+  // downstream search/discovery tests don't see an "all stores closed"
+  // catalogue when a previous autoOpenCloseStores invocation here left
+  // them flipped. cleanupRun only removes THIS run's users + their
+  // stores, so the seed stores need an explicit reset.
+  await prisma.store.updateMany({
+    where: { isActive: true },
+    data: { isOpen: true, manualClosed: false, openTime: "07:00", closeTime: "22:00" },
+  })
 })
 
 async function freshOrder(): Promise<string> {

@@ -45,3 +45,28 @@ export function effectivePricePaise(p: DiscountInput, now: Date = new Date()): n
   // FLAT_PAISE
   return Math.max(0, p.pricePaise - value)
 }
+
+/**
+ * IP-2 — variant-aware convenience. The variant carries the list price;
+ * the product carries the discount. Both sides combine here so callers
+ * don't have to remember which fields live where.
+ */
+export function effectiveVariantPricePaise(
+  variant: { pricePaise: number },
+  product: {
+    discountType: DiscountType | null
+    discountValue: number | null
+    discountValidUntil: Date | null
+  },
+  now: Date = new Date(),
+): number {
+  return effectivePricePaise(
+    {
+      pricePaise: variant.pricePaise,
+      discountType: product.discountType,
+      discountValue: product.discountValue,
+      discountValidUntil: product.discountValidUntil,
+    },
+    now,
+  )
+}

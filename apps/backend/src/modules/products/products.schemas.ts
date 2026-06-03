@@ -79,6 +79,66 @@ const searchAliasesSchema = z
   )
 
 /**
+ * IP-2 — one entry in the variants array carried by create / update.
+ *
+ * `id` is optional: present when editing an existing variant (service
+ * matches by id and patches), absent for new ones (service inserts).
+ * The full incoming array is the new state — anything not in it gets
+ * deleted (per-store SKU uniqueness + per-product-name uniqueness are
+ * service-layer assertions on top).
+ *
+ * Each variant carries its own unit + unitValue so a single product can
+ * have "1 kg" (KG) + "Pack of 6" (PIECE) sized differently. Per-variant
+ * imageUrl is optional with read-time fallback to the product image.
+ */
+const variantInputSchema = z.strictObject({
+  id: z.string().min(1).max(40).optional(),
+  name: z.string().trim().min(1).max(80),
+  unitValue: z.number().positive().max(100_000),
+  unit: z.nativeEnum(Unit),
+  pricePaise: z.number().int().min(100).max(5_000_000),
+  isAvailable: z.boolean().optional().default(true),
+  isDefault: z.boolean().optional().default(false),
+  sku: z.string().trim().min(1).max(60).nullable().optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional().default(0),
+  imageUrl: imageUrlSchema.nullable().optional(),
+  imagePublicId: imagePublicIdSchema.nullable().optional(),
+})
+export type VariantInput = z.infer<typeof variantInputSchema>
+
+const variantsArraySchema = z
+  .array(variantInputSchema)
+  .min(1, { message: "A product must have at least one variant" })
+  .max(20, { message: "Max 20 variants per product" })
+  .superRefine((arr, ctx) => {
+    // At most one isDefault=true. Zero defaults is OK — the service marks
+    // the first variant default in that case (consistent with the
+    // "every product has exactly one default" invariant).
+    const defaults = arr.filter((v) => v.isDefault === true).length
+    if (defaults > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Exactly one variant must be isDefault=true",
+      })
+    }
+    // Names unique within the array (the DB also enforces via @@unique).
+    const seenNames = new Set<string>()
+    for (let i = 0; i < arr.length; i++) {
+      const variant = arr[i]
+      if (variant === undefined) continue
+      const name = variant.name.toLowerCase()
+      if (seenNames.has(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, "name"],
+          message: "Variant name must be unique within the product",
+        })
+      }
+      seenNames.add(name)
+    }
+  })
+
+/**
  * Phase 6.6 — products FK to Subcategory (L3), not Category. The admin
  * L2/L1 are reachable via JOIN through Subcategory.categoryId on the read
  * path; on writes the owner picks a sub they own (verified server-side).
@@ -100,6 +160,12 @@ export const createProductBodySchema = z
     discountType: z.nativeEnum(DiscountType).optional(),
     discountValue: z.number().int().min(1).max(5_000_000).optional(),
     discountValidUntil: z.string().datetime().optional(),
+    // IP-2 — optional variants array. When present, defines the variant
+    // set explicitly (service inserts each); when absent, the service
+    // synthesizes a single "Default" variant from `pricePaise` + `unit`
+    // so legacy callers (existing tests + scripts that haven't migrated)
+    // keep working through IP-2.0.
+    variants: variantsArraySchema.optional(),
   })
   .superRefine(refineDiscount)
 export type CreateProductBody = z.infer<typeof createProductBodySchema>
@@ -121,6 +187,12 @@ export const updateProductBodySchema = z
     discountType: z.nativeEnum(DiscountType).nullable().optional(),
     discountValue: z.number().int().min(1).max(5_000_000).nullable().optional(),
     discountValidUntil: z.string().datetime().nullable().optional(),
+    // IP-2 — when present, replaces the full variant set (id-matched
+    // upsert; missing ids are deleted; new entries inserted). When
+    // absent, variants are left unchanged. The service mirrors the
+    // default variant's price/unit onto the deprecated Product.pricePaise
+    // / Product.unit columns for legacy reader compat.
+    variants: variantsArraySchema.optional(),
   })
   .strict()
   .superRefine(refineDiscount)

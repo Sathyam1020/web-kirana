@@ -137,6 +137,36 @@ export type ListCouponsQuery = z.infer<typeof listCouponsQuerySchema>
 
 // ---- Customer preview --------------------------------------------------
 
+/**
+ * IP-2 — cart items accept EITHER `variantId` (new) or `productId`
+ * (legacy, resolves server-side to the product's default variant), the
+ * same discriminated union the `/v1/orders` placement endpoint accepts.
+ * Keeping both surfaces in lockstep prevents the customer cart from
+ * being valid for placement but invalid for the coupon preview shown
+ * just before placement.
+ */
+const couponCartItemSchema = z
+  .object({
+    variantId: z.string().min(1).max(40).optional(),
+    productId: z.string().min(1).max(40).optional(),
+    quantity: z.number().int().min(1).max(100),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.variantId === undefined && v.productId === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Cart item must include variantId (or legacy productId)",
+      })
+    }
+    if (v.variantId !== undefined && v.productId !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Send variantId OR productId, not both",
+      })
+    }
+  })
+
 export const previewCouponBodySchema = z.strictObject({
   code: z
     .string()
@@ -144,15 +174,7 @@ export const previewCouponBodySchema = z.strictObject({
     .min(1)
     .max(40)
     .transform((v) => v.toUpperCase()),
-  cart: z
-    .array(
-      z.strictObject({
-        productId: z.string().min(1).max(40),
-        quantity: z.number().int().min(1).max(100),
-      }),
-    )
-    .min(1)
-    .max(50),
+  cart: z.array(couponCartItemSchema).min(1).max(50),
 })
 export type PreviewCouponBody = z.infer<typeof previewCouponBodySchema>
 

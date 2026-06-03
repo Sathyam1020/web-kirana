@@ -142,3 +142,53 @@ export class MinOrderNotMetError extends AppError {
     )
   }
 }
+
+/**
+ * IP-2 — create/update product with zero variants. Every product MUST own
+ * at least one variant; the owner UI defaults to a "Default" placeholder
+ * but the schema can't enforce ≥1 (Prisma doesn't model that). Service
+ * raises this if the array is empty or absent.
+ */
+export class ProductMissingVariantsError extends AppError {
+  constructor(message = "A product must have at least one variant") {
+    super(400, ErrorCode.PRODUCT_MISSING_VARIANTS, message)
+  }
+}
+
+/**
+ * IP-2 — create/update product with 0 or 2+ `isDefault=true` variants.
+ * Exactly one must be the default; the service falls back to "mark the
+ * first one default" if zero are sent, so this fires for the 2+ case.
+ */
+export class MultipleDefaultVariantsError extends AppError {
+  constructor(message = "Exactly one variant must be marked default") {
+    super(409, ErrorCode.MULTIPLE_DEFAULT_VARIANTS, message)
+  }
+}
+
+/**
+ * IP-2 — cart item that carries neither `variantId` nor `productId`.
+ * The transitional placement schema accepts either, but at least one is
+ * required. Rejecting at the schema layer keeps the service simple.
+ */
+export class NoVariantSelectedError extends AppError {
+  constructor(message = "Cart item is missing variantId (or legacy productId)") {
+    super(400, ErrorCode.NO_VARIANT_SELECTED, message)
+  }
+}
+
+/**
+ * IP-2 — variant SKU clashes with another variant in the same store.
+ * `details` carries the conflicting `sku` + the existing variant's id so
+ * the owner UI can surface "already used by …".
+ */
+export class SkuConflictError extends AppError {
+  constructor(sku: string, conflictingVariantId: string) {
+    super(
+      409,
+      ErrorCode.SKU_CONFLICT,
+      `SKU "${sku}" is already used by another variant in this store`,
+      { sku, conflictingVariantId },
+    )
+  }
+}

@@ -58,6 +58,9 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
+    // IP-2: reorder dialog shim — the original variant is recovered via
+    // OrderItem.variantId at cart-add time. No alternate chips here.
+    variants: [],
   }
 }
 

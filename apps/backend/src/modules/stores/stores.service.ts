@@ -5,7 +5,7 @@ import type { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { ConflictError, NotFoundError, StoreNotCreatedError } from "../../lib/errors.js"
 import { normalizePhone } from "../../lib/phone.js"
-import { effectivePricePaise } from "../../lib/pricing.js"
+import { effectivePricePaise, effectiveVariantPricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import { getActiveBanner } from "../banners/banners.service.js"
 import { searchProducts } from "../search/search.service.js"
@@ -498,7 +498,27 @@ export interface StoreNearbyHit extends StorePublicView {
  * Phase 6.6 — public product view carries the full taxonomy chain (L1+L2+L3)
  * so customer-side tiles can show a "Atta, Rice & Dal → Rice" badge without
  * a second round-trip per item.
+ *
+ * IP-2 — also carries the sized SKUs as `variants[]`. Each variant has its
+ * own `effectivePricePaise` (the product-level discount applied to that
+ * variant's `pricePaise`) so the customer card can swap pricing per chip
+ * without recomputing client-side.
  */
+export interface ProductPublicVariantView {
+  id: string
+  name: string
+  unitValue: string
+  unit: Unit
+  pricePaise: number
+  effectivePricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sortOrder: number
+  // Resolved image: variant.imageUrl ?? product.imageUrl. Customers don't
+  // need the Cloudinary public_id.
+  imageUrl: string | null
+}
+
 export interface ProductPublicView {
   id: string
   storeId: string
@@ -521,6 +541,11 @@ export interface ProductPublicView {
   isAvailable: boolean
   isFeatured: boolean
   featuredOrder: number | null
+  // IP-2 — sized SKUs. Always ≥1; exactly one isDefault=true. Each
+  // entry carries its own effectivePricePaise (product discount applied
+  // to variant.pricePaise) and a resolved imageUrl (variant's if set,
+  // else falls back to the product's).
+  variants: ProductPublicVariantView[]
 }
 
 export interface CategoryCount {
@@ -606,7 +631,26 @@ const PUBLIC_PRODUCT_SELECT = {
       },
     },
   },
-} as const
+  // IP-2 — pull variants in the same query so customer surfaces don't
+  // round-trip per product. Ordered for a stable chip layout.
+  variants: {
+    select: {
+      id: true,
+      name: true,
+      unitValue: true,
+      unit: true,
+      pricePaise: true,
+      isAvailable: true,
+      isDefault: true,
+      sortOrder: true,
+      imageUrl: true,
+    },
+    orderBy: [
+      { sortOrder: "asc" },
+      { name: "asc" },
+    ] as Array<{ sortOrder: "asc" } | { name: "asc" }>,
+  },
+}
 
 function toPublicProductView(row: {
   id: string
@@ -627,8 +671,26 @@ function toPublicProductView(row: {
     name: string
     category: { id: string; name: string; department: { id: string; name: string } }
   }
+  variants: Array<{
+    id: string
+    name: string
+    unitValue: unknown // Decimal
+    unit: Unit
+    pricePaise: number
+    isAvailable: boolean
+    isDefault: boolean
+    sortOrder: number
+    imageUrl: string | null
+  }>
 }): ProductPublicView {
-  const { subcategory, ...rest } = row
+  const { subcategory, variants, ...rest } = row
+  // The product-level discount fields apply to every variant — combine
+  // here so the wire format carries per-variant effective prices.
+  const product = {
+    discountType: row.discountType,
+    discountValue: row.discountValue,
+    discountValidUntil: row.discountValidUntil,
+  }
   return {
     ...rest,
     effectivePricePaise: effectivePricePaise(row),
@@ -637,6 +699,20 @@ function toPublicProductView(row: {
     categoryName: subcategory.category.name,
     departmentId: subcategory.category.department.id,
     departmentName: subcategory.category.department.name,
+    variants: variants.map((v) => ({
+      id: v.id,
+      name: v.name,
+      unitValue: String(v.unitValue), // Decimal → string per the convention
+      unit: v.unit,
+      pricePaise: v.pricePaise,
+      effectivePricePaise: effectiveVariantPricePaise(v, product),
+      isAvailable: v.isAvailable,
+      isDefault: v.isDefault,
+      sortOrder: v.sortOrder,
+      // IP-2 — variant.imageUrl ?? product.imageUrl resolution at the
+      // wire boundary so customer cards don't have to fall back.
+      imageUrl: v.imageUrl ?? row.imageUrl,
+    })),
   }
 }
 
@@ -1208,6 +1284,11 @@ export async function listStoreProducts(
         isAvailable: h.isAvailable,
         isFeatured: false,
         featuredOrder: null,
+        // IP-2 — SearchHit doesn't carry variants. Search result tiles
+        // surface the product summary; tapping through hits the full
+        // product detail (toPublicProductView) which DOES carry the
+        // variant chips. Empty array here keeps the contract honest.
+        variants: [],
       })),
       page: result.page,
       limit: result.limit,

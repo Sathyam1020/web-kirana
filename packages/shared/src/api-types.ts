@@ -174,6 +174,44 @@ export const UNIT_LABELS: Record<Unit, string> = {
 }
 
 /**
+ * IP-2 — variant shape exposed alongside product views. Owner sees the
+ * raw list price (`pricePaise`); the customer-facing view adds an
+ * `effectivePricePaise` per variant (the product-level discount applied
+ * to the variant's list price).
+ */
+export interface ProductVariantView {
+  id: string
+  name: string
+  unitValue: string // Decimal serialized as string (matches store coords)
+  unit: Unit
+  pricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sku: string | null
+  sortOrder: number
+  imageUrl: string | null
+  imagePublicId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProductPublicVariantView {
+  id: string
+  name: string
+  unitValue: string
+  unit: Unit
+  pricePaise: number
+  // Variant price after the product-level discount.
+  effectivePricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sortOrder: number
+  // Resolved image — variant.imageUrl ?? product.imageUrl. Customers
+  // don't need the Cloudinary public_id.
+  imageUrl: string | null
+}
+
+/**
  * Phase 6.6 — product views carry the full taxonomy chain (L1+L2+L3) so
  * tile UI can render breadcrumbs without an extra round-trip.
  */
@@ -204,6 +242,8 @@ export interface ProductOwnerView {
   isPromoted: boolean
   promotedUntil: string | null
   searchAliases: string[]
+  // IP-2 — sized SKUs under this product. Always ≥1; exactly one default.
+  variants: ProductVariantView[]
   createdAt: string
   updatedAt: string
 }
@@ -230,6 +270,8 @@ export interface ProductPublicView {
   isAvailable: boolean
   isFeatured: boolean
   featuredOrder: number | null
+  // IP-2 — customer-facing variant chips on the product card.
+  variants: ProductPublicVariantView[]
 }
 
 /** Kept for back-compat (admin coupon tooling); same shape as before. */
@@ -348,6 +390,11 @@ export type PaymentStatus = "PENDING" | "COLLECTED"
 export interface OrderItemView {
   id: string
   productId: string | null
+  // IP-2 — variant identity snapshot. Null on pre-IP-2 orders; populated
+  // on every new order so the order screen renders "Atta · 500 g".
+  variantId: string | null
+  variantName: string | null
+  variantUnitValue: string | null // Decimal as string
   nameSnapshot: string
   imageUrlSnapshot: string | null
   unitPricePaiseSnapshot: number

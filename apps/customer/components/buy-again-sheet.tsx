@@ -84,6 +84,10 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
+    // IP-2: reorder uses the variantId stored on the order item to add
+    // that exact variant back to cart — no need to surface alternate
+    // chips here. Leave variants empty.
+    variants: [],
   }
 }
 
