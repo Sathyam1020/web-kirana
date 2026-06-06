@@ -1,5 +1,6 @@
 "use client"
 
+import { reverseGeocode } from "@workspace/ui/lib/reverse-geocode"
 import { useEffect, useState } from "react"
 
 const STORAGE_KEY = "kirana.last-location"
@@ -70,4 +71,49 @@ export function useUserLocation() {
   }
 
   return { location, status, request, setLocation }
+}
+
+/**
+ * IP-3 — Resolves the customer's coords into a human label using the
+ * shared reverse-geocode helper. Returns:
+ *   - "loading" while the geocode call is in-flight
+ *   - the label string ("Brookefield, Bengaluru") on success
+ *   - null when no coords yet OR the geocode failed (caller falls back
+ *     to "Set location" or a raw coord display)
+ *
+ * The geocode call itself is cached for 24h in localStorage so this
+ * hook is cheap on repeat visits.
+ */
+export function useResolvedLocation(coords: LatLng | null): {
+  label: string | null
+  loading: boolean
+} {
+  const [label, setLabel] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (coords === null) {
+      setLabel(null)
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    reverseGeocode({ lat: coords.lat, lng: coords.lng })
+      .then((result) => {
+        if (cancelled) return
+        setLabel(result?.label ?? null)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLabel(null)
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [coords?.lat, coords?.lng])
+
+  return { label, loading }
 }

@@ -23,7 +23,7 @@ import { useEffect } from "react"
 
 import { DeliverToPill } from "@/components/deliver-to-pill"
 import { HomeSearchBar } from "@/components/home-search-bar"
-import { useUserLocation } from "@/lib/location"
+import { useResolvedLocation, useUserLocation } from "@/lib/location"
 
 export function HomeHeader() {
   const api = useApi()
@@ -34,6 +34,12 @@ export function HomeHeader() {
     status: locStatus,
     request: requestLocation,
   } = useUserLocation()
+  // IP-3 — resolves the customer's coords into a human label via Google
+  // Geocoding. Cached 24h in localStorage; falls back to null on key-
+  // missing or network failure (the label below then degrades to
+  // "Current location").
+  const { label: resolvedLabel, loading: resolvingLabel } =
+    useResolvedLocation(location)
 
   useEffect(() => {
     if (locStatus === "idle") requestLocation()
@@ -51,9 +57,17 @@ export function HomeHeader() {
     ["PLACED", "ACCEPTED", "OUT_FOR_DELIVERY"].includes(o.status),
   ).length
 
+  // IP-3 — prefer the freshly-resolved human label ("Brookefield,
+  // Bengaluru") over either the persisted `location.label` (legacy
+  // path, may still be a raw coord string) or the generic "Current
+  // location" fallback. Only show "Locating…" / "Resolving…" while we
+  // genuinely don't have a label yet; once we have ANY label, keep it
+  // visible during background refreshes so the pill doesn't flicker.
   const deliverToLabel =
     locStatus === "ready" && location
-      ? location.label ?? "Current location"
+      ? resolvedLabel ??
+        location.label ??
+        (resolvingLabel ? "Resolving…" : "Current location")
       : locStatus === "denied"
         ? "Set your location"
         : locStatus === "requesting"

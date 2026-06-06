@@ -110,3 +110,64 @@ distributed lock + external scheduler. Socket.IO also needs a long-lived server
 Fixtures are phone-prefix / name-prefix scoped per run and cleaned in `afterAll`
 (`tests/helpers/factories.ts`). Rate limiters + cron + notifications are bypassed
 / not scheduled in `NODE_ENV=test`.
+
+## IP-3 — Google Maps setup
+
+The customer + owner PWAs use Google Maps Platform for address autocomplete
++ reverse-geocoding. The backend itself **never talks to Google** — the
+key lives only on the two frontends. A leaked key restricted by HTTP
+referrer is non-load-bearing.
+
+### One-time setup
+
+1. **Create a Google Cloud project.** Name it `kirana-prod` (or
+   per-environment — `kirana-dev`, `kirana-staging`).
+2. **Enable these APIs** in the GCP console:
+   - **Places API (New)** — autocomplete suggestions
+   - **Geocoding API** — reverse-lookup for the location pill
+   - **Maps JavaScript API** — implicitly used by the script loader
+3. **Create an API key** (APIs & Services → Credentials → Create
+   credentials → API key).
+4. **Restrict the key**:
+   - **Application restrictions:** HTTP referrers. Add (for prod):
+     - `https://customer.online-kirana.app/*`
+     - `https://owner.online-kirana.app/*`
+     - (for dev) `http://customer.localhost:3000/*`,
+       `http://owner.localhost:3001/*`
+   - **API restrictions:** restrict the key to the three APIs above.
+5. **Cap the quota** (IAM & Admin → Quotas):
+   - `Places API` autocomplete: 5,000 / day
+   - `Geocoding API`: 5,000 / day
+   - These caps are generous for MVP traffic + cheap insurance against a
+     leaked key getting weaponised.
+6. **Add the key to deploy envs:**
+   - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<key>` in the customer Vercel
+     project + the owner Vercel project.
+   - Same var in `apps/customer/.env.local` + `apps/owner/.env.local`
+     for local dev.
+7. **Store the key in 1Password** under the kirana vault — canonical
+   copy lives there, Vercel + .env.local are convenience mirrors.
+
+### Failure modes (and what the frontend does)
+
+- **Key missing** → `MapsKeyMissingError` at first autocomplete mount.
+  Component shows "Maps key not configured — type the address manually
+  for now." and degrades to plain text inputs. The form still accepts
+  POST.
+- **Network down / Google outage** → script load fails; component shows
+  "Couldn't reach Maps. Type the address manually." Same fallback path.
+- **Quota exhausted** → autocomplete returns empty suggestion lists.
+  Customer types the address by hand; placement still works because
+  `latitude` + `longitude` are still required and the GPS-fallback
+  button captures coords.
+- **Cost surprise** → 24h localStorage cache on reverse-geocode + the
+  daily quota caps above + the HTTP-referrer restrictions are the
+  three layers. Monitor at `GCP Console → APIs & Services → Dashboard`
+  in the first week post-deploy.
+
+### Key rotation
+
+1. Create a new key in GCP with the same restrictions.
+2. Update `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` on both Vercel projects.
+3. Trigger a redeploy on both.
+4. Wait 24h for cached pages to roll over, then delete the old key.
