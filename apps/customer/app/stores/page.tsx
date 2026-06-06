@@ -46,6 +46,7 @@ import { OtherStoresRail } from "@/components/other-stores-rail"
 import { PrimaryStoreHero } from "@/components/primary-store-hero"
 import { ProductRail } from "@/components/product-rail"
 import { useCart } from "@/lib/cart"
+import { useDeliveryContext } from "@/lib/delivery-context"
 import { useUserLocation } from "@/lib/location"
 import { useSelectedStore } from "@/lib/selected-store"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
@@ -96,6 +97,15 @@ export default function HomePage() {
     status: locStatus,
     request: requestLocation,
   } = useUserLocation()
+  // IP-4 — coords priority:
+  //   1. delivery context (saved address picked OR GPS committed via picker)
+  //   2. live GPS as the implicit default for first-run customers
+  // The home re-fires the nearby query when EITHER changes; the picker
+  // also invalidates `["stores","nearby"]` on commit so the swap is
+  // immediate and not gated on this effect re-running.
+  const ctx = useDeliveryContext()
+  const effectiveCoords =
+    ctx.coords ?? (location !== null ? { lat: location.lat, lng: location.lng } : null)
 
   const selected = useSelectedStore()
   const cart = useCart()
@@ -104,12 +114,12 @@ export default function HomePage() {
 
   // --- Nearby query (every store within delivery reach) -------------------
   const nearbyQuery = useQuery({
-    queryKey: ["stores", "nearby", location?.lat, location?.lng],
-    enabled: location !== null,
+    queryKey: ["stores", "nearby", effectiveCoords?.lat, effectiveCoords?.lng],
+    enabled: effectiveCoords !== null,
     queryFn: () =>
       api.stores.nearby({
-        lat: location!.lat,
-        lng: location!.lng,
+        lat: effectiveCoords!.lat,
+        lng: effectiveCoords!.lng,
         radiusMeters: 50_000,
         limit: 30,
         includeClosed: true,
@@ -233,8 +243,9 @@ export default function HomePage() {
           max-w-md ≈ 448px keeps the feel of the design intact at every
           viewport. */}
       <main className="max-w-md mx-auto px-4 py-5 space-y-4">
-        {/* No location → ask for it */}
-        {location === null && locStatus !== "requesting" ? (
+        {/* No location → ask for it. Only when context is empty AND GPS
+            hasn't resolved AND we're not mid-request. */}
+        {effectiveCoords === null && locStatus !== "requesting" ? (
           <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
             <NoLocationIllustration className="w-44" />
             <h2 className="text-base font-semibold">Where are you?</h2>
@@ -248,7 +259,7 @@ export default function HomePage() {
         ) : null}
 
         {/* Loading the first nearby fetch → section-shaped skeleton. */}
-        {nearbyQuery.isPending && location !== null ? <HomeSkeleton /> : null}
+        {nearbyQuery.isPending && effectiveCoords !== null ? <HomeSkeleton /> : null}
 
         {/* Network errored */}
         {nearbyQuery.isError ? (

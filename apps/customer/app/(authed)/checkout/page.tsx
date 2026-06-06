@@ -32,6 +32,7 @@ import { CartSummaryCard } from "@/components/cart-summary-card"
 import { OrderSuccessCelebration } from "@/components/order-success-celebration"
 import { Shake } from "@/components/shake"
 import { useCart } from "@/lib/cart"
+import { useDeliveryContext } from "@/lib/delivery-context"
 import { describeApiError, formatPriceFromPaise } from "@/lib/format"
 import { primeAudio } from "@/lib/sound"
 import { useSmartBack } from "@/lib/use-smart-back"
@@ -67,12 +68,25 @@ export default function CheckoutPage() {
     queryFn: () => api.addresses.list(),
   })
 
-  // Default the selection to the default address (or the first).
+  // IP-4 — preselect priority:
+  //   1. The address committed via the deliver-to picker on the home
+  //      (drives the "Mom in Mumbai" use-case end-to-end — the picker's
+  //      choice becomes the checkout default).
+  //   2. The customer's marked default address.
+  //   3. The first address in the list.
+  const deliverToAddressId = useDeliveryContext((s) => s.selectedAddressId)
   useEffect(() => {
     if (selectedAddressId !== null || !addresses.data) return
-    const def = addresses.data.find((a) => a.isDefault) ?? addresses.data[0]
-    if (def) setSelectedAddressId(def.id)
-  }, [addresses.data, selectedAddressId])
+    const fromContext =
+      deliverToAddressId !== null
+        ? addresses.data.find((a) => a.id === deliverToAddressId)
+        : undefined
+    const pick =
+      fromContext ??
+      addresses.data.find((a) => a.isDefault) ??
+      addresses.data[0]
+    if (pick) setSelectedAddressId(pick.id)
+  }, [addresses.data, selectedAddressId, deliverToAddressId])
 
   async function applyCoupon() {
     if (!couponCode.trim() || previewing) return
