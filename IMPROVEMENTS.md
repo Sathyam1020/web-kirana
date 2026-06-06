@@ -50,13 +50,20 @@ chunk with its own PR / commit set / deploy. They are ordered by:
   premium and emotionally warm, never decorative." Mockups designed and
   reviewed for Home, Categories, Orders, Account, and Delivery slots;
   rebuild before functional work resumes.
-- **Color palette: USE `packages/ui/src/styles/globals.css` AS-IS.** The
-  mockups (in `docs/design/`) were generated with green accents for
-  visual storytelling — **do NOT copy those colors**. The real app uses
-  the Airbnb-inspired palette already in `globals.css`: Rausch red
-  `#ff385c` as the single accent, pure white `#ffffff` canvas, near-black
-  `#222222` ink, 8px button radius, 14px card radius, one shadow tier.
-  Mockups inform **layout, hierarchy, motion, and interaction**, not color.
+- **Color palette: 3-role system locked in DP-9.** The Rausch-only
+  guidance was scrapped during DP-6 → DP-9; the app now runs a Blinkit-
+  style 3-role split:
+  - **Primary green (`#0c831f`)** — actions only: ADD button, place-order
+    CTA, brand mark, cart pill, "live" status indicators.
+  - **Discount rose (`#e11d48`, token `--discount`)** — savings: %-OFF
+    ribbons on product cards, coupon carousel, expiring-offer ribbons.
+  - **Rating amber (`#f59e0b`, token `--rating`)** — quality / trust:
+    favorited star fills, future review stars.
+  Status colors (success / warning / destructive) live alongside as
+  small dots and tints. **Do NOT revert action surfaces to Rausch red**
+  or pull discount/rating back into the primary green — that's how the
+  app ended up reading as one-colour wallpaper before DP-9. All five
+  surface families live under `:root` in `packages/ui/src/styles/globals.css`.
 - **Motion stack:** `motion/react` everywhere; standard tween curve
   `[0.16, 1, 0.3, 1]`; spring sets (`tap`, `sheet`, `route`) centralized in
   `packages/ui/lib/motion.ts`. `useReducedMotion` honored globally.
@@ -66,7 +73,8 @@ chunk with its own PR / commit set / deploy. They are ordered by:
 ## Design references (mockups in `docs/design/`)
 
 Reviewed mockups that the Design Phase rebuilds against. **Remember: colors
-are illustrative only — implementation uses `globals.css` (Rausch palette).**
+use the 3-role palette in `globals.css` (DP-9: green for action, rose
+for discount, amber for rating) — mockup colors are illustrative only.**
 
 | Mockup | File | Covers | Consumed by |
 |--------|------|--------|-------------|
@@ -144,11 +152,12 @@ The foundation every other Design Phase consumes. Motion primitives +
 missing component primitives — no end-user-visible screens shipped here.
 Lands first so every subsequent phase has the same vocabulary.
 
-> **Note on tokens:** Most design tokens (color, radii, shadows, spacing,
-> type) **already exist** in `packages/ui/src/styles/globals.css`
-> (Airbnb-inspired: Rausch `#ff385c` primary, pure white canvas, near-black
-> ink, 8px button radius, 14px card radius, one shadow tier). DP-0 does
-> NOT redefine tokens — it audits + locks them and adds anything missing.
+> **Note on tokens:** All design tokens live in
+> `packages/ui/src/styles/globals.css` — DP-9 locked the 3-role system
+> (action green / discount rose / rating amber) on top of the
+> Blinkit-leaning surfaces. DP-0 audited + extended; subsequent design
+> phases extended further. New IP phases should not redefine token
+> *values* — only add semantic aliases when introducing new roles.
 
 ### Scope
 
@@ -228,10 +237,11 @@ switch-store warning, choose-a-store sheet, variant selector preview).
 Slot-aware Home variant in [`docs/design/delivery-slots.png`](docs/design/delivery-slots.png) frame A — the "Deliver now / Schedule delivery" toggle
 slot is reserved here but **wired in IP-5**, not DP-1.
 
-> **Color override reminder:** the mockup uses green accents; implement
-> with the Rausch palette already in `globals.css`. CTAs use
-> `var(--primary)` (Rausch), not green. "Free delivery" pills use
-> `var(--surface-soft)` neutrals, not green.
+> **Color override reminder (post-DP-9):** the mockup's accent colors
+> are illustrative. Use the 3-role tokens in `globals.css`:
+> `var(--primary)` (green) for action CTAs, `var(--discount)` (rose) for
+> %-off / savings, `var(--rating)` (amber) for stars / favorites.
+> Status pills use `var(--success-soft)` / `var(--warning-soft)`.
 
 ### Scope
 
@@ -296,9 +306,11 @@ because they share the same product card + quantity stepper.
   frame B — store page with slots/cutoff info (slot wiring deferred to
   IP-5; layout slot reserved in DP-2).
 
-> **Color override reminder:** "Free delivery above ₹199" tags and active
-> filter chips use Rausch / ink, not green. Quantity stepper `+` / `−`
-> use ink on white, not green.
+> **Color override reminder (post-DP-9):** "Free delivery above ₹199"
+> tag uses `var(--discount-soft)` (rose tint, since it advertises
+> savings). Active filter chips use `var(--primary)` (action role).
+> Quantity stepper stays in the action role — both ADD and stepper now
+> outlined with `border-primary` per DP-7.
 
 ### Scope — Categories page
 
@@ -361,11 +373,12 @@ patterns (progress, transparency, recovery).
   scheduled view), G (scheduled order tracking detail). Slot **wiring**
   lands in IP-5; DP-3 reserves the layout slots only.
 
-> **Color override reminder:** the green "Reorder" / "Track order" / "Place
-> order" CTAs in the mockup → use `var(--primary)` (Rausch red). The red
-> "Replace cart" / "Cancel order" buttons → use `var(--destructive)`
-> (already darker / more saturated than Rausch — distinct from primary).
-> Progress stepper active state → ink-filled, not green.
+> **Color override reminder (post-DP-9):** "Reorder", "Track order",
+> "Place order" CTAs use `var(--primary)` (green — the action role).
+> "Replace cart" / "Cancel order" use `var(--destructive)` (red — kept
+> distinct from primary so destructive reads as destructive). Progress
+> stepper active state uses `var(--primary)` as the "in progress" tone;
+> completed steps use `var(--success)`.
 
 ### Scope — Cart
 
@@ -449,13 +462,11 @@ Contact store" link.
 map, favorite stores, notifications settings, offers & coupons, help &
 support, about / legal, logout confirmation, loading skeletons, not-logged-in).
 
-> **Color override reminder:** the green "Save changes", "Add new address",
-> "Sign in", and "Save address" CTAs → use `var(--primary)` (Rausch).
-> Toggles in the ON state → `var(--primary)`. The red "Delete address"
-> and "Log out" → `var(--destructive)`. "Verified" badges, success toasts,
-> and star icons → if no `--success` token exists yet, DP-0 adds one;
-> otherwise use `var(--primary)` as a temporary stand-in for "verified"
-> state (matches Airbnb's pattern of using Rausch for verified).
+> **Color override reminder (post-DP-9):** action CTAs ("Save changes",
+> "Add new address", "Sign in") use `var(--primary)` (green). Toggles in
+> the ON state → `var(--primary)`. "Delete address" / "Log out" use
+> `var(--destructive)`. "Verified" badges and success toasts use
+> `var(--success)` (now wired). Favorite stars use `var(--rating)` (amber).
 
 ### Scope
 

@@ -35,9 +35,11 @@ export function HomeSearchBar({
       whileTap={{ scale: tapScale }}
       transition={tap}
       className={cn(
-        "flex w-full items-center gap-3 h-12 rounded-[var(--radius-md)]",
-        "bg-surface-soft border border-border px-4",
-        "text-left text-sm text-muted-foreground",
+        // DP-7 compression: h-12 → h-10 + tighter padding. Search is a
+        // utility, not a hero — flatten visual weight, reach commerce sooner.
+        "flex w-full items-center gap-2.5 h-10 rounded-[var(--radius-md)]",
+        "bg-surface-soft border border-border px-3.5",
+        "text-left text-[13px] text-muted-foreground",
         "hover:bg-surface-strong transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,

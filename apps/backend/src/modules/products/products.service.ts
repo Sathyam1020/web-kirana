@@ -1,8 +1,14 @@
 import { prisma } from "../../db/prisma.js"
 import { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
-import { NotFoundError, ValidationError } from "../../lib/errors.js"
-import { effectivePricePaise } from "../../lib/pricing.js"
+import {
+  MultipleDefaultVariantsError,
+  NotFoundError,
+  ProductMissingVariantsError,
+  SkuConflictError,
+  ValidationError,
+} from "../../lib/errors.js"
+import { effectivePricePaise, effectiveVariantPricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import { searchProducts } from "../search/search.service.js"
 import type {
@@ -10,7 +16,13 @@ import type {
   ListProductsQuery,
   MoveProductBody,
   UpdateProductBody,
+  VariantInput,
 } from "./products.schemas.js"
+
+// IP-2 — Prisma transaction client type. Hand-typing this avoids
+// pulling Prisma.TransactionClient through the generated client export
+// surface; the shape is just a subset of PrismaClient.
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
 
 /**
  * Phase 6.6 — Product carries Subcategory (L3) + the admin Category (L2)
@@ -18,6 +30,28 @@ import type {
  * for the catalogue UI; the public search view (see search.service) does
  * the same denormalization via tsvector.
  */
+/**
+ * IP-2 — owner-side variant shape exposed by ProductView.variants. The
+ * customer-facing public view (ProductPublicView in stores.service)
+ * adds `effectivePricePaise` per variant; this one keeps it raw so the
+ * owner sees the list price they configured.
+ */
+export interface ProductVariantView {
+  id: string
+  name: string
+  unitValue: string // Decimal serialized as string (matches existing pattern)
+  unit: Unit
+  pricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sku: string | null
+  sortOrder: number
+  imageUrl: string | null
+  imagePublicId: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface ProductView {
   id: string
   storeId: string
@@ -45,9 +79,28 @@ export interface ProductView {
   isPromoted: boolean
   promotedUntil: Date | null
   searchAliases: string[]
+  // IP-2 — sized SKUs under this product. Always ≥1; exactly one
+  // isDefault=true. Owner UI renders these as a row-editor.
+  variants: ProductVariantView[]
   createdAt: Date
   updatedAt: Date
 }
+
+const VARIANT_SELECT = {
+  id: true,
+  name: true,
+  unitValue: true,
+  unit: true,
+  pricePaise: true,
+  isAvailable: true,
+  isDefault: true,
+  sku: true,
+  sortOrder: true,
+  imageUrl: true,
+  imagePublicId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const
 
 const SELECT = {
   id: true,
@@ -83,7 +136,17 @@ const SELECT = {
       },
     },
   },
-} as const
+  // IP-2 — variants ordered by sortOrder then name for a stable owner UI.
+  // No `as const` on this nested object because Prisma's orderBy typing
+  // rejects readonly arrays.
+  variants: {
+    select: VARIANT_SELECT,
+    orderBy: [
+      { sortOrder: "asc" },
+      { name: "asc" },
+    ] as Array<{ sortOrder: "asc" } | { name: "asc" }>,
+  },
+}
 
 function toView(row: {
   id: string
@@ -111,8 +174,23 @@ function toView(row: {
     name: string
     category: { id: string; name: string; department: { id: string; name: string } }
   }
+  variants: Array<{
+    id: string
+    name: string
+    unitValue: unknown // Decimal
+    unit: Unit
+    pricePaise: number
+    isAvailable: boolean
+    isDefault: boolean
+    sku: string | null
+    sortOrder: number
+    imageUrl: string | null
+    imagePublicId: string | null
+    createdAt: Date
+    updatedAt: Date
+  }>
 }): ProductView {
-  const { subcategory, ...rest } = row
+  const { subcategory, variants, ...rest } = row
   return {
     ...rest,
     effectivePricePaise: effectivePricePaise(row),
@@ -121,6 +199,10 @@ function toView(row: {
     categoryName: subcategory.category.name,
     departmentId: subcategory.category.department.id,
     departmentName: subcategory.category.department.name,
+    variants: variants.map((v) => ({
+      ...v,
+      unitValue: String(v.unitValue), // Decimal → string (existing pattern)
+    })),
   }
 }
 
@@ -161,6 +243,210 @@ function assertDiscountUnderPrice(
   }
 }
 
+// ---------------------------------------------------------------------------
+// IP-2 — Variant CRUD helpers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-store SKU uniqueness lives here (Postgres partial unique with a
+ * cross-table subquery isn't supported directly). Called inside the
+ * transaction; reads every variant in the store with a matching SKU and
+ * checks none belongs to a different product (or, within the same
+ * product, a different variant).
+ */
+async function assertSkuUniqueInStore(
+  tx: Tx,
+  storeId: string,
+  productId: string,
+  variants: VariantInput[],
+): Promise<void> {
+  const skus = variants
+    .map((v) => v.sku?.trim())
+    .filter((s): s is string => s !== undefined && s !== null && s.length > 0)
+  if (skus.length === 0) return
+
+  // Each incoming SKU must be unique in the array first.
+  const seen = new Set<string>()
+  for (const sku of skus) {
+    if (seen.has(sku)) {
+      throw new SkuConflictError(sku, "(duplicate in request)")
+    }
+    seen.add(sku)
+  }
+
+  const conflicts = await tx.productVariant.findMany({
+    where: {
+      sku: { in: skus },
+      product: { storeId },
+      // Allow a variant to keep its own SKU on update — match by id only
+      // against variants that are NOT in our incoming list.
+      NOT: {
+        AND: [
+          { productId },
+          { id: { in: variants.map((v) => v.id).filter((id): id is string => id !== undefined) } },
+        ],
+      },
+    },
+    select: { id: true, sku: true },
+  })
+  if (conflicts.length > 0) {
+    const c = conflicts[0]
+    if (c) throw new SkuConflictError(c.sku ?? "", c.id)
+  }
+}
+
+/**
+ * Diff-replace the variant set for a product. Returns the resolved
+ * default variant so the caller can mirror its price/unit onto the
+ * deprecated Product columns.
+ *
+ * Semantics:
+ *   - Existing variant id matched in incoming → update.
+ *   - Existing variant missing from incoming → delete. The FK is
+ *     SetNull on OrderItem so historical orders survive; the snapshot
+ *     fields preserve the customer-visible variant info.
+ *   - Incoming entry without id → insert.
+ *   - Zero defaults in incoming → first entry becomes default (this is
+ *     defensive — the schema also requires the array be non-empty).
+ */
+async function syncVariants(
+  tx: Tx,
+  productId: string,
+  storeId: string,
+  incoming: VariantInput[],
+): Promise<{ id: string; pricePaise: number; unit: Unit; imageUrl: string | null }> {
+  if (incoming.length === 0) {
+    throw new ProductMissingVariantsError()
+  }
+
+  // Resolve the default. Zero defaults → first entry. >1 → schema
+  // already rejected at refine; here we double-check defensively.
+  const declaredDefaults = incoming.filter((v) => v.isDefault === true)
+  if (declaredDefaults.length > 1) {
+    throw new MultipleDefaultVariantsError()
+  }
+  const resolved = incoming.map((v, i) => ({
+    ...v,
+    isDefault:
+      declaredDefaults.length === 1
+        ? v.isDefault === true
+        : i === 0, // fallback: first entry default
+  }))
+
+  // Service-layer SKU pre-check is now a friendly-error fast-path; the
+  // DB partial unique index added in 20260603083100 is the real
+  // correctness gate against the cross-transaction race.
+  await assertSkuUniqueInStore(tx, storeId, productId, resolved)
+
+  const existing = await tx.productVariant.findMany({
+    where: { productId },
+    select: { id: true },
+  })
+  const existingIds = new Set(existing.map((v) => v.id))
+  const incomingIds = new Set(
+    resolved.map((v) => v.id).filter((id): id is string => id !== undefined),
+  )
+
+  // Delete: existing rows not referenced in the incoming array.
+  const toDelete = [...existingIds].filter((id) => !incomingIds.has(id))
+  if (toDelete.length > 0) {
+    await tx.productVariant.deleteMany({ where: { id: { in: toDelete } } })
+  }
+
+  // The partial unique index "ProductVariant_productId_default_unique"
+  // enforces at-most-one isDefault=true per product. To avoid colliding
+  // with an existing default while we write the new one, clear ALL
+  // defaults on this product first, then re-flag the right one in the
+  // upsert loop below.
+  if (existingIds.size > 0) {
+    await tx.productVariant.updateMany({
+      where: { productId, isDefault: true },
+      data: { isDefault: false },
+    })
+  }
+
+  // Upsert each incoming variant. Sequential so any P2002 from the SKU
+  // index surfaces against the exact culprit; map it to SkuConflictError.
+  try {
+    for (const v of resolved) {
+      const data = {
+        name: v.name,
+        unitValue: v.unitValue.toString(),
+        unit: v.unit,
+        pricePaise: v.pricePaise,
+        isAvailable: v.isAvailable ?? true,
+        isDefault: v.isDefault,
+        sku: v.sku ?? null,
+        sortOrder: v.sortOrder ?? 0,
+        imageUrl: v.imageUrl ?? null,
+        imagePublicId: v.imagePublicId ?? null,
+      }
+      if (v.id !== undefined && existingIds.has(v.id)) {
+        await tx.productVariant.update({ where: { id: v.id }, data })
+      } else {
+        await tx.productVariant.create({ data: { ...data, productId } })
+      }
+    }
+  } catch (err) {
+    // P2002 on the SKU partial unique index — translate to typed error.
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      (err as { code?: string }).code === "P2002" &&
+      Array.isArray((err as { meta?: { target?: string[] } }).meta?.target) &&
+      (err as { meta: { target: string[] } }).meta.target.includes("sku")
+    ) {
+      const sku = resolved.find((v) => v.sku !== undefined && v.sku !== null)?.sku ?? ""
+      throw new SkuConflictError(sku, "(race lost to concurrent write)")
+    }
+    throw err
+  }
+
+  // Force a no-op write on Product.searchAliases — the BEFORE UPDATE OF
+  // trigger watches that column and recomputes searchVector from the
+  // now-final variant set. Replaces the dropped per-row propagator from
+  // 20260603083100, cutting an N-variant create from O(N) trigger-driven
+  // round-trips to exactly one.
+  await tx.$executeRaw`UPDATE "Product" SET "searchAliases" = "searchAliases" WHERE id = ${productId}`
+
+  // Resolve default after writes to return the canonical values.
+  const def = await tx.productVariant.findFirst({
+    where: { productId, isDefault: true },
+    select: { id: true, pricePaise: true, unit: true, imageUrl: true },
+  })
+  if (def === null) {
+    // Should be impossible after the above logic; defensive throw.
+    throw new MultipleDefaultVariantsError("Failed to resolve default variant after sync")
+  }
+  return def
+}
+
+/**
+ * Build a legacy-shaped variant from the deprecated Product.pricePaise /
+ * unit fields when the caller didn't pass a `variants` array. Lets
+ * existing tests + scripts continue working through IP-2.0; new owner UI
+ * always sends the explicit array.
+ */
+function synthesizeDefaultVariant(input: {
+  pricePaise: number
+  unit: Unit
+  imageUrl?: string
+  imagePublicId?: string
+}): VariantInput {
+  return {
+    name: "Default",
+    unitValue: 1,
+    unit: input.unit,
+    pricePaise: input.pricePaise,
+    isAvailable: true,
+    isDefault: true,
+    sku: null,
+    sortOrder: 0,
+    imageUrl: input.imageUrl ?? null,
+    imagePublicId: input.imagePublicId ?? null,
+  }
+}
+
 export async function createProduct(
   storeId: string,
   ownerId: string,
@@ -169,27 +455,62 @@ export async function createProduct(
   await assertOwnSubcategory(storeId, input.subcategoryId)
   assertDiscountUnderPrice(input.pricePaise, input.discountType, input.discountValue)
 
+  // IP-2 — resolve incoming variants OR synthesize one from the legacy
+  // pricePaise + unit fields so callers that haven't migrated keep working.
+  const incomingVariants: VariantInput[] = input.variants ?? [
+    synthesizeDefaultVariant(input),
+  ]
+
   try {
-    const created = await prisma.product.create({
-      data: {
-        storeId,
-        subcategoryId: input.subcategoryId,
-        name: input.name,
-        description: input.description,
-        pricePaise: input.pricePaise,
-        unit: input.unit,
-        imageUrl: input.imageUrl,
-        imagePublicId: input.imagePublicId,
-        isAvailable: input.isAvailable ?? true,
-        searchAliases: input.searchAliases ?? [],
-        discountType: input.discountType ?? null,
-        discountValue: input.discountValue ?? null,
-        discountValidUntil: input.discountValidUntil
-          ? new Date(input.discountValidUntil)
-          : null,
+    // Bumped transaction timeout — variant create/update fires the
+    // search-vector trigger via a propagator on ProductVariant, which
+    // each round-trips through Postgres for a SELECT-then-UPDATE on
+    // Product.searchVector. On Neon (~100ms RTT) a 3-variant create
+    // can cumulatively exceed Prisma's default 5s. 15s covers a
+    // reasonable upper bound (10+ variants) without masking real issues.
+    const created = await prisma.$transaction(
+      async (tx) => {
+        const product = await tx.product.create({
+          data: {
+            storeId,
+            subcategoryId: input.subcategoryId,
+            name: input.name,
+            description: input.description,
+            // Legacy columns; mirrored to the default variant below.
+            pricePaise: input.pricePaise,
+            unit: input.unit,
+            imageUrl: input.imageUrl,
+            imagePublicId: input.imagePublicId,
+            isAvailable: input.isAvailable ?? true,
+            searchAliases: input.searchAliases ?? [],
+            discountType: input.discountType ?? null,
+            discountValue: input.discountValue ?? null,
+            discountValidUntil: input.discountValidUntil
+              ? new Date(input.discountValidUntil)
+              : null,
+          },
+          select: { id: true },
+        })
+
+        const def = await syncVariants(tx, product.id, storeId, incomingVariants)
+
+        // Mirror the resolved default variant's price/unit (and image when
+        // none was supplied at product-level) onto the legacy Product
+        // columns so reads via the deprecated path stay consistent until
+        // IP-2.5 drops them.
+        await tx.product.update({
+          where: { id: product.id },
+          data: {
+            pricePaise: def.pricePaise,
+            unit: def.unit,
+          },
+        })
+
+        return tx.product.findUniqueOrThrow({ where: { id: product.id }, select: SELECT })
       },
-      select: SELECT,
-    })
+      { timeout: 15_000, maxWait: 5_000 },
+    )
+
     events.emit({
       type: "product.created",
       storeId,
@@ -265,6 +586,11 @@ export async function listProducts(
         isPromoted: false,
         promotedUntil: null,
         searchAliases: [],
+        // IP-2 — SearchHit doesn't carry variants. Owner search-result
+        // rows show the product summary; clicking through to the editor
+        // calls getProduct which returns the full ProductView with
+        // variants[].
+        variants: [],
         createdAt: new Date(0),
         updatedAt: new Date(0),
       })),
@@ -369,30 +695,63 @@ export async function updateProduct(
     assertDiscountUnderPrice(priceForCheck, DiscountType.FLAT_PAISE, data.discountValue as number)
   }
 
-  if (Object.keys(data).length === 0) {
+  // IP-2 — if the caller is also reshaping variants in this PATCH, the
+  // whole operation runs in a transaction so the product row + variant
+  // table land atomically. Other PATCHes (price-only, name-only) still
+  // get the cheaper single-statement path.
+  const hasVariantUpdate = input.variants !== undefined
+  const hasFieldUpdate = Object.keys(data).length > 0
+  if (!hasVariantUpdate && !hasFieldUpdate) {
     return getProduct(storeId, productId)
   }
 
-  // Scope the UPDATE to (productId, storeId) so an owner can never patch a
-  // foreign store's product even if they guessed an id.
-  const claim = await prisma.product.updateMany({
-    where: { id: productId, storeId },
-    data,
-  })
-  if (claim.count === 0) throw new NotFoundError("Product not found")
+  try {
+    // Bumped timeout — see createProduct for the rationale (variant
+    // writes trigger per-row search-vector recomputation via the
+    // ProductVariant propagator, which round-trips to Postgres N times).
+    const updated = await prisma.$transaction(
+      async (tx) => {
+        // Verify product exists + belongs to this store BEFORE writing
+        // variants (avoid orphaning a sync when the product PATCH would fail).
+        const exists = await tx.product.findFirst({
+          where: { id: productId, storeId },
+          select: { id: true },
+        })
+        if (exists === null) throw new NotFoundError("Product not found")
 
-  const updated = await prisma.product.findUniqueOrThrow({
-    where: { id: productId },
-    select: SELECT,
-  })
-  events.emit({
-    type: "product.updated",
-    storeId,
-    productId,
-    ownerId,
-    fields: Object.keys(data),
-  })
-  return toView(updated)
+        if (hasFieldUpdate) {
+          await tx.product.update({ where: { id: productId }, data })
+        }
+
+        if (hasVariantUpdate) {
+          const def = await syncVariants(tx, productId, storeId, input.variants!)
+          // Mirror the new default variant onto the deprecated Product
+          // columns so legacy reads stay consistent.
+          await tx.product.update({
+            where: { id: productId },
+            data: { pricePaise: def.pricePaise, unit: def.unit },
+          })
+        }
+
+        return tx.product.findUniqueOrThrow({ where: { id: productId }, select: SELECT })
+      },
+      { timeout: 15_000, maxWait: 5_000 },
+    )
+
+    events.emit({
+      type: "product.updated",
+      storeId,
+      productId,
+      ownerId,
+      fields: [
+        ...Object.keys(data),
+        ...(hasVariantUpdate ? ["variants"] : []),
+      ],
+    })
+    return toView(updated)
+  } catch (err) {
+    rethrowAsAppError(err)
+  }
 }
 
 /**

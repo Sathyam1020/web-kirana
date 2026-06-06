@@ -5,7 +5,7 @@ import type { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { events } from "../../lib/events.js"
 import { ConflictError, NotFoundError, StoreNotCreatedError } from "../../lib/errors.js"
 import { normalizePhone } from "../../lib/phone.js"
-import { effectivePricePaise } from "../../lib/pricing.js"
+import { effectivePricePaise, effectiveVariantPricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import { getActiveBanner } from "../banners/banners.service.js"
 import { searchProducts } from "../search/search.service.js"
@@ -28,6 +28,13 @@ export interface StoreView {
   longitude: string
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — fee + free-above-threshold config.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  // IP-1 — operating hours + emergency override (owner-only).
+  openTime: string
+  closeTime: string
+  manualClosed: boolean
   addressLine: string
   city: string
   pincode: string
@@ -50,6 +57,11 @@ const SELECT = {
   longitude: true,
   deliveryRadiusMeters: true,
   minOrderPaise: true,
+  baseDeliveryFeePaise: true,
+  freeDeliveryThresholdPaise: true,
+  openTime: true,
+  closeTime: true,
+  manualClosed: true,
   addressLine: true,
   city: true,
   pincode: true,
@@ -72,6 +84,11 @@ function toView(row: {
   longitude: unknown
   deliveryRadiusMeters: number
   minOrderPaise: number
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
+  manualClosed: boolean
   addressLine: string
   city: string
   pincode: string
@@ -110,6 +127,12 @@ export async function createOwnStore(
         longitude: input.longitude.toString(),
         deliveryRadiusMeters: input.deliveryRadiusMeters,
         minOrderPaise: input.minOrderPaise,
+        // IP-1 — explicit on create; zod defaults fill them when omitted.
+        baseDeliveryFeePaise: input.baseDeliveryFeePaise,
+        freeDeliveryThresholdPaise: input.freeDeliveryThresholdPaise,
+        openTime: input.openTime,
+        closeTime: input.closeTime,
+        manualClosed: input.manualClosed,
         addressLine: input.addressLine,
         city: input.city,
         pincode: input.pincode,
@@ -150,6 +173,49 @@ export async function updateOwnStore(
   if (input.longitude !== undefined) data.longitude = input.longitude.toString()
   if (input.deliveryRadiusMeters !== undefined) data.deliveryRadiusMeters = input.deliveryRadiusMeters
   if (input.minOrderPaise !== undefined) data.minOrderPaise = input.minOrderPaise
+  // IP-1 — all 5 new fields editable via owner settings.
+  if (input.baseDeliveryFeePaise !== undefined) data.baseDeliveryFeePaise = input.baseDeliveryFeePaise
+  if (input.freeDeliveryThresholdPaise !== undefined)
+    data.freeDeliveryThresholdPaise = input.freeDeliveryThresholdPaise
+  if (input.openTime !== undefined) data.openTime = input.openTime
+  if (input.closeTime !== undefined) data.closeTime = input.closeTime
+  if (input.manualClosed !== undefined) {
+    data.manualClosed = input.manualClosed
+    // IP-1 — keep `isOpen` consistent with the new `manualClosed` value
+    // in the SAME write so the customer view doesn't lag behind by up
+    // to 15 min (the next cron tick) and show "Open" on an
+    // emergency-closed store.
+    //   - manualClosed → true   : force isOpen=false immediately.
+    //   - manualClosed → false  : recompute isOpen from the (existing or
+    //     newly-set) hours so a re-opened store snaps to the right state
+    //     without waiting for the cron.
+    if (input.manualClosed === true) {
+      data.isOpen = false
+    } else {
+      // Compute hours from incoming-or-existing values. If no openTime/
+      // closeTime is in this PATCH body, we need the persisted ones —
+      // safe to read in a quick findUnique because we're not in a tx.
+      let openTime = input.openTime
+      let closeTime = input.closeTime
+      if (openTime === undefined || closeTime === undefined) {
+        const existing = await prisma.store.findUnique({
+          where: { ownerId },
+          select: { openTime: true, closeTime: true },
+        })
+        if (existing !== null) {
+          openTime ??= existing.openTime
+          closeTime ??= existing.closeTime
+        }
+      }
+      if (openTime !== undefined && closeTime !== undefined) {
+        const openMin = hhmmToMinutes(openTime)
+        const closeMin = hhmmToMinutes(closeTime)
+        if (openMin !== null && closeMin !== null) {
+          data.isOpen = isInsideHours(istMinuteOfDay(), openMin, closeMin)
+        }
+      }
+    }
+  }
   if (input.addressLine !== undefined) data.addressLine = input.addressLine
   if (input.city !== undefined) data.city = input.city
   if (input.pincode !== undefined) data.pincode = input.pincode
@@ -185,22 +251,174 @@ export async function toggleOpen(
   ownerId: string,
   isOpen: boolean,
 ): Promise<StoreView> {
+  // IP-1 — guarded on the value transition. An unconditional updateMany
+  // would emit `store.opened` / `store.closed` even on a no-op write
+  // (owner taps Open seconds after the cron already opened the store),
+  // double-firing the push fan-out. Two-phase:
+  //   1. updateMany WHERE isOpen != target → flips iff different.
+  //   2. If count === 0, the store either doesn't exist OR is already in
+  //      the target state. Disambiguate with findUnique.
   const claim = await prisma.store.updateMany({
-    where: { ownerId },
+    where: { ownerId, isOpen: !isOpen },
     data: { isOpen },
   })
-  if (claim.count === 0) throw new StoreNotCreatedError()
-
-  const updated = await prisma.store.findUniqueOrThrow({
+  const updated = await prisma.store.findUnique({
     where: { ownerId },
     select: SELECT,
   })
-  events.emit({
-    type: isOpen ? "store.opened" : "store.closed",
-    storeId: updated.id,
-    ownerId,
-  })
+  if (updated === null) throw new StoreNotCreatedError()
+
+  if (claim.count > 0) {
+    events.emit({
+      type: isOpen ? "store.opened" : "store.closed",
+      storeId: updated.id,
+      ownerId,
+    })
+  }
   return toView(updated)
+}
+
+// ------------------------------------------------------------------------
+// IP-1 — auto-open / auto-close based on the store's configured hours.
+// ------------------------------------------------------------------------
+
+/**
+ * Parse `"HH:MM"` into `H*60 + M` for fast comparison. Returns null when
+ * the string isn't well-formed (defence in depth — the zod schema gates
+ * input, but bad legacy data shouldn't crash a cron tick).
+ */
+function hhmmToMinutes(s: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(s)
+  if (match === null) return null
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+/**
+ * `true` when `now` is inside the wall-clock window `[open, close)`.
+ *
+ *   - Same-day window (open < close):   inside ⇔ open ≤ now < close
+ *   - Crossing-midnight (open > close): inside ⇔ now ≥ open OR now < close
+ *
+ * Exported for the cron test.
+ */
+export function isInsideHours(
+  nowMinutes: number,
+  openMinutes: number,
+  closeMinutes: number,
+): boolean {
+  if (openMinutes === closeMinutes) return false // schema rejects this, but be safe
+  if (openMinutes < closeMinutes) {
+    return nowMinutes >= openMinutes && nowMinutes < closeMinutes
+  }
+  return nowMinutes >= openMinutes || nowMinutes < closeMinutes
+}
+
+/**
+ * Read the wall-clock minute-of-day in `Asia/Kolkata` (IST). Stores in this
+ * app are India-only, so the cron's "is it within hours right now?"
+ * computation runs in IST regardless of the server's TZ (Railway runs UTC).
+ *
+ * Exported for the test, which injects fixed dates to exercise the
+ * midnight-crossing branch.
+ */
+export function istMinuteOfDay(now: Date = new Date()): number {
+  // Intl.DateTimeFormat is the only standard-library way to coerce a Date
+  // into a target timezone without pulling in dayjs/luxon. We ask for the
+  // 24-hour parts and arithmetic them — locale-independent.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now)
+  const hourPart = parts.find((p) => p.type === "hour")?.value ?? "0"
+  const minPart = parts.find((p) => p.type === "minute")?.value ?? "0"
+  // en-GB renders 00:00 (not 24:00); Number() handles leading zeros.
+  return Number(hourPart) * 60 + Number(minPart)
+}
+
+/**
+ * Phase 11+IP-1 cron — sweep every active store and flip its `isOpen`
+ * column to match the current IST wall clock against its configured
+ * `openTime`/`closeTime`. Stores with `manualClosed=true` are skipped
+ * entirely (owner override always wins).
+ *
+ * Per-row guarded `updateMany WHERE id=? AND isOpen=oldValue` ensures
+ * that an owner who flips the manual toggle (or hits the toggleOpen
+ * endpoint) in the same tick window doesn't get overwritten by stale
+ * state. Each flip emits the matching `store.opened` / `store.closed`
+ * event so the rest of the system (push notifications etc.) reacts
+ * exactly as it does for an owner-triggered toggle.
+ *
+ * Returns counters so the cron log line is informative.
+ */
+export async function autoOpenCloseStores(
+  now: Date = new Date(),
+): Promise<{ opened: number; closed: number; skipped: number; scanned: number }> {
+  // Perf note (deferred): sequential per-row updateMany below is O(N)
+  // round-trips to Neon. At MVP store count (~tens) this is well under
+  // a minute. When the catalog grows past ~hundreds and ticks start
+  // bumping into the 15-min cadence (runGuarded would then skip ticks
+  // and stale "Opens at HH:MM" pills last up to 30 min), bucket stores
+  // by (isOpen, shouldBeOpen) into two batched `UPDATE … WHERE id =
+  // ANY($1) AND isOpen=$2 RETURNING id` raw queries and emit per
+  // survivor. Not worth the complexity at current scale.
+  const stores = await prisma.store.findMany({
+    where: { isActive: true, manualClosed: false },
+    select: {
+      id: true,
+      ownerId: true,
+      isOpen: true,
+      openTime: true,
+      closeTime: true,
+    },
+  })
+
+  const nowMin = istMinuteOfDay(now)
+  let opened = 0
+  let closed = 0
+  let skipped = 0
+
+  for (const store of stores) {
+    const openMin = hhmmToMinutes(store.openTime)
+    const closeMin = hhmmToMinutes(store.closeTime)
+    if (openMin === null || closeMin === null) {
+      skipped += 1
+      continue
+    }
+    const shouldBeOpen = isInsideHours(nowMin, openMin, closeMin)
+    if (shouldBeOpen === store.isOpen) continue
+
+    // Guarded flip: only succeeds if `isOpen` is still what we read AND
+    // the owner hasn't flipped `manualClosed=true` between our SELECT
+    // and this UPDATE. Without the manualClosed predicate, this race
+    // sequence flips a store the owner just declared emergency-closed:
+    //   1. cron findMany: store {isOpen=true, manualClosed=false}
+    //   2. owner PATCH manualClosed=true (without touching isOpen)
+    //   3. cron updateMany WHERE id=?, isOpen=true → matches → flips
+    //      isOpen to whatever shouldBeOpen says.
+    // Locking down the predicate keeps the docstring's "manualClosed
+    // always wins" contract honest even under contention.
+    const claim = await prisma.store.updateMany({
+      where: { id: store.id, isOpen: store.isOpen, manualClosed: false },
+      data: { isOpen: shouldBeOpen },
+    })
+    if (claim.count === 0) {
+      // Someone else moved it between our SELECT and UPDATE.
+      skipped += 1
+      continue
+    }
+
+    if (shouldBeOpen) opened += 1
+    else closed += 1
+    events.emit({
+      type: shouldBeOpen ? "store.opened" : "store.closed",
+      storeId: store.id,
+      ownerId: store.ownerId,
+    })
+  }
+
+  return { opened, closed, skipped, scanned: stores.length }
 }
 
 /**
@@ -254,6 +472,16 @@ export interface StorePublicView {
   longitude: string
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — exposed publicly so the customer cart can render the
+  // "Add ₹X for free delivery" nudge + show the delivery fee row in the
+  // bill breakdown without a second fetch.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  // IP-1 — hours surfaced for the store page ("Opens at 07:00" subline
+  // when closed). `manualClosed` stays owner-only — customers only need
+  // to know the resulting `isOpen`.
+  openTime: string
+  closeTime: string
   addressLine: string
   city: string
   pincode: string
@@ -270,7 +498,27 @@ export interface StoreNearbyHit extends StorePublicView {
  * Phase 6.6 — public product view carries the full taxonomy chain (L1+L2+L3)
  * so customer-side tiles can show a "Atta, Rice & Dal → Rice" badge without
  * a second round-trip per item.
+ *
+ * IP-2 — also carries the sized SKUs as `variants[]`. Each variant has its
+ * own `effectivePricePaise` (the product-level discount applied to that
+ * variant's `pricePaise`) so the customer card can swap pricing per chip
+ * without recomputing client-side.
  */
+export interface ProductPublicVariantView {
+  id: string
+  name: string
+  unitValue: string
+  unit: Unit
+  pricePaise: number
+  effectivePricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sortOrder: number
+  // Resolved image: variant.imageUrl ?? product.imageUrl. Customers don't
+  // need the Cloudinary public_id.
+  imageUrl: string | null
+}
+
 export interface ProductPublicView {
   id: string
   storeId: string
@@ -293,6 +541,11 @@ export interface ProductPublicView {
   isAvailable: boolean
   isFeatured: boolean
   featuredOrder: number | null
+  // IP-2 — sized SKUs. Always ≥1; exactly one isDefault=true. Each
+  // entry carries its own effectivePricePaise (product discount applied
+  // to variant.pricePaise) and a resolved imageUrl (variant's if set,
+  // else falls back to the product's).
+  variants: ProductPublicVariantView[]
 }
 
 export interface CategoryCount {
@@ -311,6 +564,12 @@ const PUBLIC_STORE_SELECT = {
   longitude: true,
   deliveryRadiusMeters: true,
   minOrderPaise: true,
+  // IP-1 — exposed publicly (see StorePublicView). manualClosed is NOT
+  // here on purpose — owner-only.
+  baseDeliveryFeePaise: true,
+  freeDeliveryThresholdPaise: true,
+  openTime: true,
+  closeTime: true,
   addressLine: true,
   city: true,
   pincode: true,
@@ -328,6 +587,10 @@ function toPublicView(row: {
   longitude: unknown
   deliveryRadiusMeters: number
   minOrderPaise: number
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
   addressLine: string
   city: string
   pincode: string
@@ -368,7 +631,26 @@ const PUBLIC_PRODUCT_SELECT = {
       },
     },
   },
-} as const
+  // IP-2 — pull variants in the same query so customer surfaces don't
+  // round-trip per product. Ordered for a stable chip layout.
+  variants: {
+    select: {
+      id: true,
+      name: true,
+      unitValue: true,
+      unit: true,
+      pricePaise: true,
+      isAvailable: true,
+      isDefault: true,
+      sortOrder: true,
+      imageUrl: true,
+    },
+    orderBy: [
+      { sortOrder: "asc" },
+      { name: "asc" },
+    ] as Array<{ sortOrder: "asc" } | { name: "asc" }>,
+  },
+}
 
 function toPublicProductView(row: {
   id: string
@@ -389,8 +671,26 @@ function toPublicProductView(row: {
     name: string
     category: { id: string; name: string; department: { id: string; name: string } }
   }
+  variants: Array<{
+    id: string
+    name: string
+    unitValue: unknown // Decimal
+    unit: Unit
+    pricePaise: number
+    isAvailable: boolean
+    isDefault: boolean
+    sortOrder: number
+    imageUrl: string | null
+  }>
 }): ProductPublicView {
-  const { subcategory, ...rest } = row
+  const { subcategory, variants, ...rest } = row
+  // The product-level discount fields apply to every variant — combine
+  // here so the wire format carries per-variant effective prices.
+  const product = {
+    discountType: row.discountType,
+    discountValue: row.discountValue,
+    discountValidUntil: row.discountValidUntil,
+  }
   return {
     ...rest,
     effectivePricePaise: effectivePricePaise(row),
@@ -399,6 +699,20 @@ function toPublicProductView(row: {
     categoryName: subcategory.category.name,
     departmentId: subcategory.category.department.id,
     departmentName: subcategory.category.department.name,
+    variants: variants.map((v) => ({
+      id: v.id,
+      name: v.name,
+      unitValue: String(v.unitValue), // Decimal → string per the convention
+      unit: v.unit,
+      pricePaise: v.pricePaise,
+      effectivePricePaise: effectiveVariantPricePaise(v, product),
+      isAvailable: v.isAvailable,
+      isDefault: v.isDefault,
+      sortOrder: v.sortOrder,
+      // IP-2 — variant.imageUrl ?? product.imageUrl resolution at the
+      // wire boundary so customer cards don't have to fall back.
+      imageUrl: v.imageUrl ?? row.imageUrl,
+    })),
   }
 }
 
@@ -419,6 +733,12 @@ interface NearbyRow {
   longitude: unknown
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — same shape as StorePublicView; the raw query has to project
+  // them explicitly since it doesn't use PUBLIC_STORE_SELECT.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
   addressLine: string
   city: string
   pincode: string
@@ -482,6 +802,10 @@ export async function listNearbyStores(opts: {
       s.longitude,
       s."deliveryRadiusMeters",
       s."minOrderPaise",
+      s."baseDeliveryFeePaise",
+      s."freeDeliveryThresholdPaise",
+      s."openTime",
+      s."closeTime",
       s."addressLine",
       s.city,
       s.pincode,
@@ -960,6 +1284,11 @@ export async function listStoreProducts(
         isAvailable: h.isAvailable,
         isFeatured: false,
         featuredOrder: null,
+        // IP-2 — SearchHit doesn't carry variants. Search result tiles
+        // surface the product summary; tapping through hits the full
+        // product detail (toPublicProductView) which DOES carry the
+        // variant chips. Empty array here keeps the contract honest.
+        variants: [],
       })),
       page: result.page,
       limit: result.limit,

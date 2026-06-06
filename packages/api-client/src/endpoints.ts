@@ -72,6 +72,14 @@ export interface CreateStoreBody {
   longitude: number
   deliveryRadiusMeters?: number
   minOrderPaise?: number
+  // IP-1 — all optional, defaults handled server-side. `openTime` /
+  // `closeTime` validated as HH:MM. `baseDeliveryFeePaise` capped at
+  // ₹500 server-side; `freeDeliveryThresholdPaise` at ₹20,000.
+  baseDeliveryFeePaise?: number
+  freeDeliveryThresholdPaise?: number
+  openTime?: string
+  closeTime?: string
+  manualClosed?: boolean
   addressLine: string
   city: string
   pincode: string
@@ -87,6 +95,12 @@ export type UpdateStoreBody = Partial<{
   longitude: number
   deliveryRadiusMeters: number
   minOrderPaise: number
+  // IP-1 — owner-editable via Settings.
+  baseDeliveryFeePaise: number
+  freeDeliveryThresholdPaise: number
+  openTime: string
+  closeTime: string
+  manualClosed: boolean
   addressLine: string
   city: string
   pincode: string
@@ -96,6 +110,25 @@ export type UpdateStoreBody = Partial<{
 }>
 
 // ---------- Products (owner) --------------------------------------------
+
+/**
+ * IP-2 — one entry in the create/update variants array. `id` is present
+ * when editing an existing variant; absent for new ones. Per-variant
+ * imageUrl is optional with read-time fallback to the product image.
+ */
+export interface ProductVariantInput {
+  id?: string
+  name: string
+  unitValue: number
+  unit: Unit
+  pricePaise: number
+  isAvailable?: boolean
+  isDefault?: boolean
+  sku?: string | null
+  sortOrder?: number
+  imageUrl?: string | null
+  imagePublicId?: string | null
+}
 
 /** Phase 6.6 — products FK to Subcategory (L3), not Category. */
 export interface CreateProductBody {
@@ -113,6 +146,11 @@ export interface CreateProductBody {
   discountType?: DiscountType
   discountValue?: number
   discountValidUntil?: string
+  // IP-2 — optional variants array. When present, defines the sized SKUs
+  // explicitly (server inserts each; exactly one isDefault=true). When
+  // absent, server synthesizes one "Default" variant from pricePaise +
+  // unit so legacy callers keep working through IP-2.0.
+  variants?: ProductVariantInput[]
 }
 
 /**
@@ -132,6 +170,10 @@ export type UpdateProductBody = Partial<{
   discountType: DiscountType | null
   discountValue: number | null
   discountValidUntil: string | null
+  // IP-2 — when present, replaces the full variant set (diff-upsert: id-
+  // matched entries update, missing ids delete, new entries insert).
+  // When absent, variants are left unchanged.
+  variants: ProductVariantInput[]
 }>
 
 export interface MoveProductBody {
@@ -140,9 +182,20 @@ export interface MoveProductBody {
 
 // ---------- Orders (Phase 7) --------------------------------------------
 
+/**
+ * IP-2 — cart items accept EITHER `variantId` (new) or `productId`
+ * (legacy, resolves server-side to the product's default variant).
+ * Sending both keys at once is rejected at the server. The customer cart
+ * slice is migrating to `variantId`; legacy `productId` stays accepted
+ * through IP-2.0 so unmigrated clients keep working.
+ */
+export type CartItemBody =
+  | { variantId: string; quantity: number }
+  | { productId: string; quantity: number }
+
 export interface PlaceOrderBody {
   addressId: string
-  cart: { productId: string; quantity: number }[]
+  cart: CartItemBody[]
   couponCode?: string
   customerNote?: string
   paymentMethod?: "COD"
@@ -299,7 +352,10 @@ export type UpdateCouponBody = Partial<Omit<CreateCouponBody, "code">> & {
 
 export interface PreviewCouponBody {
   code: string
-  cart: { productId: string; quantity: number }[]
+  // IP-2 — accepts the same discriminated union as PlaceOrderBody.cart.
+  // Legacy `{productId, quantity}` items resolve to the product's
+  // default variant server-side; new clients send `{variantId, ...}`.
+  cart: CartItemBody[]
 }
 
 // ---------- Admin -------------------------------------------------------

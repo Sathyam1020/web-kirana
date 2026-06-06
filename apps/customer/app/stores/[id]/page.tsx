@@ -158,7 +158,7 @@ export default function StoreDetailPage() {
         </div>
       ) : null}
 
-      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
+      <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {detail.isError ? (
           <ErrorState
             title="Couldn't load this store"
@@ -224,7 +224,6 @@ export default function StoreDetailPage() {
             {/* Category drilldown — department-grouped 4-col grid */}
             <DepartmentSections
               storeId={storeId}
-              storeName={store.name}
               departments={departments}
               isLoading={false}
             />
@@ -245,11 +244,6 @@ export default function StoreDetailPage() {
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${storeId}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={storeId}
                   storeName={store.name}
@@ -261,11 +255,6 @@ export default function StoreDetailPage() {
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${storeId}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={storeId}
                   storeName={store.name}
@@ -356,7 +345,7 @@ function roundDown(n: number): number {
 
 function StoreBodySkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
       <section className="space-y-3">
         <Skeleton className="h-5 w-40" />

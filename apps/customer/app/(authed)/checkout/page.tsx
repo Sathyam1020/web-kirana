@@ -32,6 +32,7 @@ import { CartSummaryCard } from "@/components/cart-summary-card"
 import { OrderSuccessCelebration } from "@/components/order-success-celebration"
 import { Shake } from "@/components/shake"
 import { useCart } from "@/lib/cart"
+import { useDeliveryContext } from "@/lib/delivery-context"
 import { describeApiError, formatPriceFromPaise } from "@/lib/format"
 import { primeAudio } from "@/lib/sound"
 import { useSmartBack } from "@/lib/use-smart-back"
@@ -67,12 +68,25 @@ export default function CheckoutPage() {
     queryFn: () => api.addresses.list(),
   })
 
-  // Default the selection to the default address (or the first).
+  // IP-4 — preselect priority:
+  //   1. The address committed via the deliver-to picker on the home
+  //      (drives the "Mom in Mumbai" use-case end-to-end — the picker's
+  //      choice becomes the checkout default).
+  //   2. The customer's marked default address.
+  //   3. The first address in the list.
+  const deliverToAddressId = useDeliveryContext((s) => s.selectedAddressId)
   useEffect(() => {
     if (selectedAddressId !== null || !addresses.data) return
-    const def = addresses.data.find((a) => a.isDefault) ?? addresses.data[0]
-    if (def) setSelectedAddressId(def.id)
-  }, [addresses.data, selectedAddressId])
+    const fromContext =
+      deliverToAddressId !== null
+        ? addresses.data.find((a) => a.id === deliverToAddressId)
+        : undefined
+    const pick =
+      fromContext ??
+      addresses.data.find((a) => a.isDefault) ??
+      addresses.data[0]
+    if (pick) setSelectedAddressId(pick.id)
+  }, [addresses.data, selectedAddressId, deliverToAddressId])
 
   async function applyCoupon() {
     if (!couponCode.trim() || previewing) return
@@ -81,7 +95,7 @@ export default function CheckoutPage() {
       const result = await api.coupons.preview({
         code: couponCode.trim(),
         cart: items.map((it) => ({
-          productId: it.productId,
+          variantId: it.variantId,
           quantity: it.quantity,
         })),
       })
@@ -119,7 +133,7 @@ export default function CheckoutPage() {
         {
           addressId: selectedAddressId,
           cart: items.map((it) => ({
-            productId: it.productId,
+            variantId: it.variantId,
             quantity: it.quantity,
           })),
           couponCode: appliedCoupon ?? undefined,
@@ -143,6 +157,30 @@ export default function CheckoutPage() {
       }
       if (err instanceof ApiError && err.code === "OUT_OF_SERVICE_AREA") {
         toast.error("This store doesn’t deliver to that address")
+        return
+      }
+      // IP-1: backend enforces minimum order at placement. The MinOrderStrip
+      // nudges before this fires, but if the customer reached checkout with
+      // a sub-min cart anyway (e.g. items removed mid-flow), surface the
+      // gap honestly using the requiredPaise / actualPaise the server
+      // returned and bounce back to /cart so they can top it up.
+      if (err instanceof ApiError && err.code === "MIN_ORDER_NOT_MET") {
+        const details = err.details as
+          | { requiredPaise?: number; actualPaise?: number }
+          | undefined
+        if (
+          details !== undefined &&
+          typeof details.requiredPaise === "number" &&
+          typeof details.actualPaise === "number"
+        ) {
+          const shortBy = details.requiredPaise - details.actualPaise
+          toast.error(
+            `Add ${formatPriceFromPaise(shortBy)} more to meet this store's minimum order`,
+          )
+        } else {
+          toast.error("Cart is below this store's minimum order")
+        }
+        router.replace("/cart")
         return
       }
       toast.error(describeApiError(err))
@@ -258,10 +296,17 @@ export default function CheckoutPage() {
             <ul className="border-t border-border-soft divide-y divide-border-soft">
               {items.map((item) => (
                 <li
-                  key={item.productId}
+                  key={item.variantId}
                   className="px-4 py-2.5 flex items-center gap-3"
                 >
-                  <p className="text-sm flex-1 truncate">{item.name}</p>
+                  <p className="text-sm flex-1 truncate">
+                    {item.productName}
+                    {item.variantName !== "Default" ? (
+                      <span className="text-xs text-muted-foreground ml-1.5">
+                        · {item.variantName}
+                      </span>
+                    ) : null}
+                  </p>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     × {item.quantity}
                   </span>

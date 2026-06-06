@@ -5,34 +5,61 @@
  *
  * Layout:
  *   - Sticky back-header
+ *   - MinOrderStrip (min order nudge → free-delivery upsell)
  *   - Store identity badge ("Items from {storeName}")
- *   - Free-delivery progress bar
  *   - Compact line items (image + name + unit + stepper + remove)
  *   - Coupon teaser (real apply happens at checkout)
  *   - CartSummaryCard (subtotal + delivery + total)
  *   - Sticky "Proceed to checkout" CTA at the bottom (DP-0 Button)
  *   - Empty state with EmptyCartIllustration
  *
- * Free-delivery threshold + base delivery fee are NOT yet on the cart slice
- * (the store config trio lands in IP-1). For now the cart treats delivery
- * as Free and skips the progress bar until threshold data flows through.
+ * IP-1: cart fetches the active store's fee config and computes the
+ * delivery-fee preview client-side using the same rule as the backend
+ * (computeDeliveryFeePaise). The bill row mirrors what placement will
+ * actually charge — no surprise at checkout. Backend still snapshots
+ * the final figure at placement, so this is purely a preview.
  */
 
+import { useApi } from "@workspace/auth"
 import { Button } from "@workspace/ui/components/button"
 import { ProgressiveImage } from "@workspace/ui/components/image"
+import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, Minus, Plus, ShoppingBag, Store, Tag, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { motion } from "motion/react"
 
 import { CartSummaryCard } from "@/components/cart-summary-card"
 import { EmptyCartIllustration } from "@/components/illustrations"
+import { MinOrderStrip } from "@/components/min-order-strip"
 import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
 import { useSmartBack } from "@/lib/use-smart-back"
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
 
+/**
+ * Client-side mirror of `apps/backend/src/modules/orders/orders.service.ts`
+ * `computeDeliveryFeePaise`. Keeping these in sync is enforced by tests on
+ * the backend side; mismatches surface as a fee mismatch between the
+ * preview and the final order. If the rule grows complex, lift this into
+ * a shared package.
+ */
+function previewDeliveryFeePaise(
+  subtotalPaise: number,
+  store: { baseDeliveryFeePaise: number; freeDeliveryThresholdPaise: number } | undefined,
+): number {
+  if (store === undefined) return 0
+  if (
+    store.freeDeliveryThresholdPaise > 0 &&
+    subtotalPaise >= store.freeDeliveryThresholdPaise
+  ) {
+    return 0
+  }
+  return store.baseDeliveryFeePaise
+}
+
 export default function CartPage() {
+  const api = useApi()
   const cart = useCart()
   const items = Object.values(cart.items)
   const subtotal = cart.subtotalPaise()
@@ -40,6 +67,28 @@ export default function CartPage() {
   const tap = useMotionPreset(springs.tap)
 
   const empty = items.length === 0
+
+  // IP-1 — fetch the active store to drive the fee preview + MinOrderStrip.
+  // Same query key as the home page so the detail is already cached when the
+  // customer navigates Home → Cart. Stale-time matches Home so we don't
+  // refetch the moment they cross routes.
+  const storeQuery = useQuery({
+    queryKey: ["stores", "detail", cart.storeId],
+    enabled: cart.storeId !== null && !empty,
+    queryFn: () => api.stores.detail(cart.storeId as string),
+    staleTime: 60_000,
+  })
+  const store = storeQuery.data?.store
+
+  const previewFeePaise = previewDeliveryFeePaise(subtotal, store)
+  // Free-delivery banner copy when the threshold is met. Quiet success
+  // beat — uses the same success-soft tint as MinOrderStrip's "you're good"
+  // state so the cart feels consistent with the strip on Home.
+  const freeDeliveryEarned =
+    store !== undefined &&
+    store.freeDeliveryThresholdPaise > 0 &&
+    subtotal >= store.freeDeliveryThresholdPaise &&
+    store.baseDeliveryFeePaise > 0
 
   return (
     <div className="min-h-svh bg-background pb-32">
@@ -60,6 +109,18 @@ export default function CartPage() {
           </div>
         </div>
       </header>
+
+      {/* IP-1 — Min-order / free-delivery nudge directly under the header.
+          Same component as the home strip so the customer sees one consistent
+          commerce ask across routes. Hidden when cart empty / wrong store /
+          neither threshold applies. */}
+      {!empty && store !== undefined ? (
+        <MinOrderStrip
+          storeId={store.id}
+          minOrderPaise={store.minOrderPaise}
+          freeDeliveryThresholdPaise={store.freeDeliveryThresholdPaise}
+        />
+      ) : null}
 
       <main className="max-w-md mx-auto px-4 py-5 space-y-4">
         {empty ? (
@@ -92,12 +153,12 @@ export default function CartPage() {
             <ul className="space-y-2">
               {items.map((item) => (
                 <li
-                  key={item.productId}
+                  key={item.variantId}
                   className="rounded-[var(--radius-md)] border border-border bg-card p-3 flex items-center gap-3"
                 >
                   <ProgressiveImage
                     src={item.imageUrl}
-                    alt={item.name}
+                    alt={item.productName}
                     aspect="aspect-square"
                     rounded="rounded-[var(--radius-md)]"
                     className="w-16 shrink-0"
@@ -105,8 +166,17 @@ export default function CartPage() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-tight line-clamp-2">
-                      {item.name}
+                      {item.productName}
                     </p>
+                    {/* IP-2 — show variant name (e.g. "500 g") so the
+                        customer sees which size they bought without
+                        having to expand the row. Hidden for the legacy
+                        "Default" auto-backfill name to avoid noise. */}
+                    {item.variantName !== "Default" ? (
+                      <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                        {item.variantName}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground tabular-nums mt-1">
                       {formatPriceFromPaise(item.pricePaise)} × {item.quantity}
                     </p>
@@ -119,10 +189,10 @@ export default function CartPage() {
                     >
                       <motion.button
                         type="button"
-                        onClick={() => cart.dec(item.productId)}
+                        onClick={() => cart.dec(item.variantId)}
                         whileTap={{ scale: tapScale }}
                         transition={tap}
-                        aria-label={`Remove one ${item.name}`}
+                        aria-label={`Remove one ${item.productName}`}
                         className="size-8 inline-flex items-center justify-center"
                       >
                         <Minus className="size-3.5" strokeWidth={2.5} />
@@ -132,10 +202,10 @@ export default function CartPage() {
                       </span>
                       <motion.button
                         type="button"
-                        onClick={() => cart.incById(item.productId)}
+                        onClick={() => cart.incVariant(item.variantId)}
                         whileTap={{ scale: tapScale }}
                         transition={tap}
-                        aria-label={`Add one more ${item.name}`}
+                        aria-label={`Add one more ${item.productName}`}
                         className="size-8 inline-flex items-center justify-center"
                       >
                         <Plus className="size-3.5" strokeWidth={2.5} />
@@ -147,10 +217,10 @@ export default function CartPage() {
                   </div>
                   <motion.button
                     type="button"
-                    onClick={() => cart.remove(item.productId)}
+                    onClick={() => cart.remove(item.variantId)}
                     whileTap={{ scale: tapScale }}
                     transition={tap}
-                    aria-label={`Remove ${item.name}`}
+                    aria-label={`Remove ${item.productName}`}
                     className="size-8 inline-flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <Trash2 className="size-4" aria-hidden />
@@ -172,22 +242,45 @@ export default function CartPage() {
               <span className="text-xs font-semibold text-primary">Apply</span>
             </Link>
 
-            {/* Bill */}
+            {/* Bill — IP-1: real delivery fee preview from the store config.
+                Backend snapshots the same number at placement (same rule),
+                so the figure here matches what the customer will actually
+                pay. Total label switches to "To pay" once we have a real fee
+                to commit to (vs an indicative "Subtotal" before the store
+                detail loads). */}
             <CartSummaryCard
               subtotalPaise={subtotal}
-              deliveryFeePaise={0}
+              deliveryFeePaise={previewFeePaise}
               discountPaise={0}
-              totalLabel="Subtotal"
+              totalLabel={store !== undefined ? "To pay (COD)" : "Subtotal"}
             />
 
-            <p className="text-[11px] text-muted-foreground text-center">
-              Delivery fees and any coupon savings are calculated at checkout.
-            </p>
+            {/* Earned-free-delivery success beat — only when the store
+                offers a free tier AND the customer's subtotal cleared it.
+                Quiet so it doesn't compete with the strip on the home;
+                this is the receipt of the upsell. */}
+            {freeDeliveryEarned ? (
+              <p
+                role="status"
+                className="text-[11px] text-success font-semibold text-center"
+              >
+                Free delivery unlocked — you saved{" "}
+                <span className="tabular-nums">
+                  {formatPriceFromPaise(store!.baseDeliveryFeePaise)}
+                </span>
+                .
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground text-center">
+                Final amount and any coupon savings confirm at checkout.
+              </p>
+            )}
           </>
         )}
       </main>
 
-      {/* Sticky checkout CTA */}
+      {/* Sticky checkout CTA — total mirrors the bill row so the customer
+          isn't surprised. Includes the IP-1 delivery-fee preview. */}
       {!empty ? (
         <div className="fixed inset-x-0 bottom-0 z-30 bg-background/95 backdrop-blur-md border-t border-border/40 pb-[env(safe-area-inset-bottom)]">
           <div className="max-w-md mx-auto px-4 py-3">
@@ -196,7 +289,7 @@ export default function CartPage() {
                 <span className="flex items-center justify-between w-full">
                   <span className="font-semibold">Proceed to checkout</span>
                   <span className="tabular-nums font-bold">
-                    {formatPriceFromPaise(subtotal)}
+                    {formatPriceFromPaise(subtotal + previewFeePaise)}
                   </span>
                 </span>
               </Link>

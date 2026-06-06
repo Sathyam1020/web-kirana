@@ -19,25 +19,14 @@ import { Button } from "@workspace/ui/components/button"
 import { useQuery } from "@tanstack/react-query"
 import { Bell } from "lucide-react"
 import Link from "next/link"
-import { useEffect } from "react"
 
-import { DeliverToPill } from "@/components/deliver-to-pill"
+import { DeliverToTrigger } from "@/components/deliver-to-trigger"
 import { HomeSearchBar } from "@/components/home-search-bar"
-import { useUserLocation } from "@/lib/location"
 
 export function HomeHeader() {
   const api = useApi()
   const isAuthed = useIsAuthenticated()
   const status = useAuthStore((s) => s.status)
-  const {
-    location,
-    status: locStatus,
-    request: requestLocation,
-  } = useUserLocation()
-
-  useEffect(() => {
-    if (locStatus === "idle") requestLocation()
-  }, [locStatus, requestLocation])
 
   // Only authed customers see the bell; show the count of active orders.
   const activeOrdersQuery = useQuery({
@@ -51,26 +40,12 @@ export function HomeHeader() {
     ["PLACED", "ACCEPTED", "OUT_FOR_DELIVERY"].includes(o.status),
   ).length
 
-  const deliverToLabel =
-    locStatus === "ready" && location
-      ? location.label ?? "Current location"
-      : locStatus === "denied"
-        ? "Set your location"
-        : locStatus === "requesting"
-          ? "Locating…"
-          : "Enable location"
-
   return (
     <header className="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-border/40">
       <div className="max-w-md mx-auto px-4 py-3 flex flex-col gap-3">
         {/* Row 1 — deliver-to + bell + account */}
         <div className="flex items-center justify-between gap-3 min-w-0">
-          <DeliverToPill
-            label={deliverToLabel}
-            status={locStatus}
-            onClick={requestLocation}
-            className="flex-1 min-w-0"
-          />
+          <DeliverToTrigger className="flex-1 min-w-0" />
           <div className="flex items-center gap-1 shrink-0">
             {/* Account access is owned by the bottom-nav Account tab —
                 duplicating it in the header was noise. Only the bell stays

@@ -13,19 +13,17 @@
 
 import type { ProductPublicView } from "@workspace/api-client"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import Link from "next/link"
 import { motion } from "motion/react"
 
 import { ProductCardCompact } from "@/components/product-card-compact"
 import { cn } from "@workspace/ui/lib/utils"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
-// Now that price + ADD chip sit on the same row below the image, the
-// card needs more horizontal room. ~2.5 cards visible on a 375–390px
-// viewport with a sliver of a 3rd as the scroll affordance — the same
-// pattern Blinkit/Zepto use. Inner content area lands at ~120-140px,
-// enough for "₹999" + an "ADD" chip side-by-side.
-const CARD_WIDTH_CLASS = "w-[8.5rem] sm:w-[10rem]"
+// DP-6 density pass: ~3 full cards visible on a 375-390px viewport with a
+// sliver of a 4th as the scroll affordance. Matches Blinkit/Zepto's actual
+// rail density — tighter than DP-1's 2.5-card layout, which was reading too
+// editorial for a commerce surface.
+const CARD_WIDTH_CLASS = "w-[7.25rem] sm:w-[8.5rem]"
 
 interface ProductRailProps {
   /**
@@ -35,8 +33,6 @@ interface ProductRailProps {
    */
   title: React.ReactNode | null
   subtitle?: React.ReactNode
-  /** Inline action — usually a "See all" link to the store/category page. */
-  seeAllHref?: string
   products: ProductPublicView[] | undefined
   storeId: string
   /** Snapshot store name passed to the cart on add — drives the cart pill subline. */
@@ -52,7 +48,6 @@ interface ProductRailProps {
 export function ProductRail({
   title,
   subtitle,
-  seeAllHref,
   products,
   storeId,
   storeName,
@@ -76,14 +71,29 @@ export function ProductRail({
   return (
     <section className={cn("space-y-3", className)}>
       {title !== null ? (
-        <RailHeader title={title} subtitle={subtitle} seeAllHref={seeAllHref} />
+        <RailHeader title={title} subtitle={subtitle} />
       ) : null}
 
+      {/* Scroll container stays WITHIN the column gutter (no `-mx-4`)
+          so rails respect the same right boundary as the category grid
+          and other contained sections. Cards still scroll horizontally,
+          but the clipping happens at the column edge — never past it.
+          The mask-image fade softens the last 28px so overflowing cards
+          terminate gracefully + signal "scroll right for more." */}
       <div
-        className="-mx-4 px-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        style={{ scrollSnapType: "x mandatory" }}
+        className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{
+          scrollSnapType: "x mandatory",
+          maskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+        }}
       >
-        <div className="flex gap-2">
+        {/* Extra right padding inside the scroll track gives the last
+            card room to fully reveal when scrolled to end (fade only
+            covers the last 28px). */}
+        <div className="flex gap-2 pr-6">
           {isLoading
             ? Array.from({ length: skeletonCount }).map((_, i) => (
                 <ProductSkeleton key={`skel-${i}`} />
@@ -113,27 +123,15 @@ export function ProductRail({
 function RailHeader({
   title,
   subtitle,
-  seeAllHref,
 }: {
   title: React.ReactNode
   subtitle?: React.ReactNode
-  seeAllHref?: string
 }) {
   return (
-    <div className="flex items-end justify-between gap-3">
-      <div className="min-w-0">
-        <h3 className="text-base font-semibold truncate">{title}</h3>
-        {subtitle ? (
-          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
-        ) : null}
-      </div>
-      {seeAllHref ? (
-        <Link
-          href={seeAllHref}
-          className="shrink-0 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          See all
-        </Link>
+    <div className="min-w-0">
+      <h3 className="text-[15px] font-semibold truncate">{title}</h3>
+      {subtitle ? (
+        <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
       ) : null}
     </div>
   )

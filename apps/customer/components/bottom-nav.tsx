@@ -86,7 +86,11 @@ export function BottomNav() {
       aria-label="Primary"
       className={cn(
         "fixed bottom-0 inset-x-0 z-30",
-        "border-t border-border bg-background/95 backdrop-blur-md",
+        // DP-6: floating-feeling presence — stronger blur + translucent
+        // bg lets content visibly scroll under the nav, rather than into
+        // a hard border-top wall. Thin top border kept for definition;
+        // anything chunkier reads "dashboard" instead of "commerce app".
+        "border-t border-border-soft bg-background/80 backdrop-blur-xl",
         // Safe-area inset for home-indicator devices.
         "pb-[env(safe-area-inset-bottom)]",
       )}

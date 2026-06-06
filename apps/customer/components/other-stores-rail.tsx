@@ -24,7 +24,6 @@ interface OtherStoresRailProps {
   stores: StoreNearbyHit[] | undefined
   isLoading: boolean
   onPickStore: (storeId: string) => void
-  onSeeAll: () => void
 }
 
 const VISIBLE = 4
@@ -33,25 +32,13 @@ export function OtherStoresRail({
   stores,
   isLoading,
   onPickStore,
-  onSeeAll,
 }: OtherStoresRailProps) {
   const hasStores = !isLoading && (stores?.length ?? 0) > 0
   if (!isLoading && !hasStores) return null
 
   return (
     <section aria-label="Other nearby stores" className="space-y-3">
-      <div className="flex items-end justify-between">
-        <h3 className="text-base font-semibold">Other nearby stores</h3>
-        {hasStores && (stores?.length ?? 0) > VISIBLE ? (
-          <button
-            type="button"
-            onClick={onSeeAll}
-            className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            See all
-          </button>
-        ) : null}
-      </div>
+      <h3 className="text-[15px] font-semibold">Other nearby stores</h3>
 
       <ul className="flex flex-col gap-2">
         {isLoading

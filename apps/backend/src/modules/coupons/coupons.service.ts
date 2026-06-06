@@ -1,7 +1,7 @@
 import { prisma } from "../../db/prisma.js"
 import { CouponScope, CouponType } from "../../generated/prisma/enums.js"
 import { NotFoundError } from "../../lib/errors.js"
-import { effectivePricePaise } from "../../lib/pricing.js"
+import { effectivePricePaise, effectiveVariantPricePaise } from "../../lib/pricing.js"
 import { rethrowAsAppError } from "../../lib/prisma-errors.js"
 import type {
   AdminCreateCouponBody,
@@ -450,31 +450,73 @@ export async function preview(
     return { isValid: false, reason: "INVALID_CODE" }
   }
 
-  const productIds = input.cart.map((i) => i.productId)
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds }, isActive: true },
+  // IP-2 — same legacy-vs-variant resolution as orders.service.placeOrder.
+  // Legacy `{productId}` items resolve to that product's default variant
+  // server-side. Mixed shapes were rejected at the schema boundary.
+  const legacyProductIds = input.cart
+    .filter((i) => i.variantId === undefined && i.productId !== undefined)
+    .map((i) => i.productId as string)
+
+  const defaultsByProductId = new Map<string, string>()
+  if (legacyProductIds.length > 0) {
+    const defaults = await prisma.productVariant.findMany({
+      where: { productId: { in: legacyProductIds }, isDefault: true },
+      select: { id: true, productId: true },
+    })
+    for (const d of defaults) defaultsByProductId.set(d.productId, d.id)
+  }
+
+  const resolvedVariantIds: string[] = []
+  for (const item of input.cart) {
+    if (item.variantId !== undefined) {
+      resolvedVariantIds.push(item.variantId)
+    } else if (item.productId !== undefined) {
+      const vId = defaultsByProductId.get(item.productId)
+      if (vId === undefined) {
+        return { isValid: false, reason: "PRODUCT_NOT_FOUND" }
+      }
+      resolvedVariantIds.push(vId)
+    }
+  }
+
+  const variants = await prisma.productVariant.findMany({
+    where: { id: { in: resolvedVariantIds } },
     select: {
       id: true,
-      storeId: true,
       pricePaise: true,
       isAvailable: true,
-      // Phase 6.8 — coupons stack on the discounted price, so the subtotal
-      // is computed from each product's effective (post-discount) price.
-      discountType: true,
-      discountValue: true,
-      discountValidUntil: true,
+      product: {
+        select: {
+          id: true,
+          storeId: true,
+          isAvailable: true,
+          isActive: true,
+          // Phase 6.8 — coupons stack on the discounted price; product
+          // discount applies to variant.pricePaise via
+          // effectiveVariantPricePaise.
+          discountType: true,
+          discountValue: true,
+          discountValidUntil: true,
+        },
+      },
     },
   })
-  const byId = new Map(products.map((p) => [p.id, p]))
+  const variantById = new Map(variants.map((v) => [v.id, v]))
 
   let subtotal = 0
   const storeIds = new Set<string>()
-  for (const item of input.cart) {
-    const p = byId.get(item.productId)
-    if (p === undefined) return { isValid: false, reason: "PRODUCT_NOT_FOUND" }
-    if (!p.isAvailable) return { isValid: false, reason: "PRODUCT_UNAVAILABLE" }
-    subtotal += effectivePricePaise(p) * item.quantity
-    storeIds.add(p.storeId)
+  for (let i = 0; i < input.cart.length; i++) {
+    const item = input.cart[i] as (typeof input.cart)[number]
+    const variantId = resolvedVariantIds[i] as string
+    const variant = variantById.get(variantId)
+    if (variant === undefined) {
+      return { isValid: false, reason: "PRODUCT_NOT_FOUND" }
+    }
+    if (!variant.product.isActive || !variant.product.isAvailable || !variant.isAvailable) {
+      return { isValid: false, reason: "PRODUCT_UNAVAILABLE" }
+    }
+    subtotal += effectiveVariantPricePaise(variant, variant.product) * item.quantity
+    storeIds.add(variant.product.storeId)
   }
 
   // Single-store cart enforced by the order placement contract (Phase 7);

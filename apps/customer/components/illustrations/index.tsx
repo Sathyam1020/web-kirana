@@ -374,6 +374,113 @@ export function ErrorIllustration({ className, label }: IllustrationProps) {
   )
 }
 
+/**
+ * Cheery delivery rider on a scooter — used on the coupon card to give
+ * the offer a personality beat. Uses the action role (green) for the
+ * scooter body + helmet so it ties into the rest of the brand without a
+ * fresh palette.
+ */
+export function DeliveryRiderIllustration({ className, label }: IllustrationProps) {
+  return (
+    <svg
+      role={label ? "img" : "presentation"}
+      aria-label={label}
+      viewBox="0 0 120 100"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn("h-auto w-24", className)}
+    >
+      {/* Confetti — scattered dots in brand-adjacent colors */}
+      <circle cx="14" cy="20" r="2.2" fill="var(--primary)" opacity="0.55" />
+      <circle cx="28" cy="10" r="1.6" fill="var(--discount)" opacity="0.6" />
+      <circle cx="44" cy="6" r="1.8" fill="var(--warning)" opacity="0.7" />
+      <circle cx="100" cy="14" r="2" fill="var(--primary)" opacity="0.55" />
+      <circle cx="112" cy="30" r="1.6" fill="var(--discount)" opacity="0.55" />
+      <path
+        d="M16 36l2-4 2 4-2 4z"
+        fill="var(--warning)"
+        opacity="0.7"
+      />
+      <path
+        d="M108 50l2-4 2 4-2 4z"
+        fill="var(--primary)"
+        opacity="0.55"
+      />
+
+      {/* Scooter wheels */}
+      <circle cx="38" cy="84" r="9" fill="#1a1a1a" />
+      <circle cx="38" cy="84" r="4.5" fill="var(--primary)" />
+      <circle cx="38" cy="84" r="1.8" fill="#1a1a1a" />
+      <circle cx="92" cy="84" r="9" fill="#1a1a1a" />
+      <circle cx="92" cy="84" r="4.5" fill="var(--primary)" />
+      <circle cx="92" cy="84" r="1.8" fill="#1a1a1a" />
+
+      {/* Scooter body (green) */}
+      <path
+        d="M30 72 L36 60 L62 60 L70 72 L86 72 L96 60 L102 64 L96 78 L42 78 Z"
+        fill="var(--primary)"
+      />
+      {/* Footboard */}
+      <rect x="46" y="72" width="36" height="6" fill="var(--primary)" />
+
+      {/* Delivery bag on back — orange/warning */}
+      <rect
+        x="26"
+        y="44"
+        width="22"
+        height="22"
+        rx="3"
+        fill="var(--warning)"
+      />
+      <rect
+        x="30"
+        y="48"
+        width="14"
+        height="3"
+        rx="1"
+        fill="#fff"
+        opacity="0.7"
+      />
+      <circle cx="37" cy="56" r="3" fill="#fff" opacity="0.85" />
+
+      {/* Rider torso — white shirt */}
+      <path
+        d="M52 56 Q58 42 70 42 Q82 42 86 58 L82 62 L56 62 Z"
+        fill="#f8f7f4"
+      />
+
+      {/* Rider arm reaching to handlebar */}
+      <path
+        d="M82 56 L96 60 L98 64 L84 62 Z"
+        fill="#f8f7f4"
+      />
+
+      {/* Rider head — skin tone */}
+      <circle cx="72" cy="34" r="9" fill="#e8b88f" />
+      {/* Eye + smile */}
+      <circle cx="74" cy="33" r="1.2" fill="#1a1a1a" />
+      <path
+        d="M71 37 Q73 39 76 37"
+        stroke="#1a1a1a"
+        strokeWidth="1"
+        fill="none"
+        strokeLinecap="round"
+      />
+
+      {/* Helmet — green dome */}
+      <path
+        d="M63 30 Q63 20 72 20 Q82 20 82 30 L82 33 L63 33 Z"
+        fill="var(--primary)"
+      />
+      {/* Helmet visor */}
+      <rect x="65" y="29" width="14" height="3" rx="1" fill="#1a1a1a" opacity="0.85" />
+
+      {/* Handlebar */}
+      <rect x="94" y="58" width="3" height="8" rx="1" fill="#2a2a2a" />
+      <rect x="92" y="56" width="7" height="2.5" rx="1" fill="#2a2a2a" />
+    </svg>
+  )
+}
+
 // --- Tiny helpers -------------------------------------------------------
 
 function Sparkle({ x, y, size }: { x: number; y: number; size: number }) {

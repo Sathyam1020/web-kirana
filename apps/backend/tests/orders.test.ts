@@ -39,6 +39,10 @@ async function newStore(opts: {
   phone: string
   open: boolean
   minOrderPaise?: number
+  // IP-1 — opt-in extras for the fee-compute tests; default 0/0 preserves
+  // legacy callers (no fee, no threshold) so existing tests don't move.
+  baseDeliveryFeePaise?: number
+  freeDeliveryThresholdPaise?: number
 }): Promise<{ owner: AuthedCaller; storeId: string; subId: string }> {
   const owner = await signupApprovedOwner(app, "Order Owner")
   await api()
@@ -53,6 +57,8 @@ async function newStore(opts: {
       city: "Bengaluru",
       pincode: "560102",
       minOrderPaise: opts.minOrderPaise ?? 0,
+      baseDeliveryFeePaise: opts.baseDeliveryFeePaise ?? 0,
+      freeDeliveryThresholdPaise: opts.freeDeliveryThresholdPaise ?? 0,
     })
   if (opts.open) {
     await api().patch("/v1/stores/me/open").set("Cookie", owner.cookieHeader).send({ isOpen: true })
@@ -220,12 +226,15 @@ describe("POST /v1/orders — re-validation", () => {
     expect(res.body.error.code).toBe("STORE_CLOSED")
   })
 
-  it("rejects below the store minimum order (409 CART_CHANGED)", async () => {
+  it("rejects below the store minimum order (400 MIN_ORDER_NOT_MET) with required + actual paise", async () => {
     const hi = await newStore({ phone: "+919990000004", open: true, minOrderPaise: 100000 })
     const p = await newProduct(hi.owner, hi.subId, 5000)
     const res = await place(customer, { addressId: nearAddress, cart: [{ productId: p, quantity: 1 }] }, randomUUID())
-    expect(res.status).toBe(409)
-    expect(res.body.error.code).toBe("CART_CHANGED")
+    // IP-1: typed MinOrderNotMetError replaces the previous CartChangedError
+    // shim so the client can render "Add ₹X more" without recomputing.
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe("MIN_ORDER_NOT_MET")
+    expect(res.body.error.details).toMatchObject({ requiredPaise: 100000, actualPaise: 5000 })
   })
 
   it("rejects a delivery address outside the service area (422)", async () => {
@@ -233,6 +242,62 @@ describe("POST /v1/orders — re-validation", () => {
     const res = await place(customer, { addressId: farAddress, cart: [{ productId: productA, quantity: 1 }] }, randomUUID())
     expect(res.status).toBe(409)
     expect(res.body.error.code).toBe("OUT_OF_SERVICE_AREA")
+  })
+
+  // IP-1 — delivery fee snapshot at placement reflects the three branches
+  // of computeDeliveryFeePaise (threshold=0 / below threshold / above).
+  it("charges the base fee when freeDeliveryThresholdPaise=0 (no free tier offered)", async () => {
+    const s = await newStore({
+      phone: "+919990000010",
+      open: true,
+      baseDeliveryFeePaise: 3000,
+      freeDeliveryThresholdPaise: 0,
+    })
+    const p = await newProduct(s.owner, s.subId, 5000)
+    const res = await place(
+      customer,
+      { addressId: nearAddress, cart: [{ productId: p, quantity: 2 }] },
+      randomUUID(),
+    )
+    expect(res.status).toBe(201)
+    expect(res.body.data.order.deliveryFeePaise).toBe(3000)
+    expect(res.body.data.order.totalPaise).toBe(10000 + 3000)
+  })
+
+  it("charges the base fee when subtotal is below freeDeliveryThresholdPaise", async () => {
+    const s = await newStore({
+      phone: "+919990000011",
+      open: true,
+      baseDeliveryFeePaise: 3000,
+      freeDeliveryThresholdPaise: 20000,
+    })
+    const p = await newProduct(s.owner, s.subId, 5000)
+    const res = await place(
+      customer,
+      { addressId: nearAddress, cart: [{ productId: p, quantity: 1 }] },
+      randomUUID(),
+    )
+    expect(res.status).toBe(201)
+    expect(res.body.data.order.deliveryFeePaise).toBe(3000)
+    expect(res.body.data.order.totalPaise).toBe(5000 + 3000)
+  })
+
+  it("drops the fee to zero when subtotal >= freeDeliveryThresholdPaise", async () => {
+    const s = await newStore({
+      phone: "+919990000012",
+      open: true,
+      baseDeliveryFeePaise: 3000,
+      freeDeliveryThresholdPaise: 20000,
+    })
+    const p = await newProduct(s.owner, s.subId, 5000)
+    const res = await place(
+      customer,
+      { addressId: nearAddress, cart: [{ productId: p, quantity: 4 }] },
+      randomUUID(),
+    )
+    expect(res.status).toBe(201)
+    expect(res.body.data.order.deliveryFeePaise).toBe(0)
+    expect(res.body.data.order.totalPaise).toBe(20000)
   })
 })
 

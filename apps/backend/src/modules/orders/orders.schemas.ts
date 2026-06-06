@@ -1,17 +1,38 @@
 import { z } from "zod"
 import { OrderStatus } from "../../generated/prisma/enums.js"
 
+/**
+ * IP-2 — cart items accept EITHER `variantId` (new shape) OR `productId`
+ * (legacy shape, resolves to the product's default variant server-side).
+ * Sending both is rejected as an ambiguous client bug; sending neither is
+ * also rejected. Once every customer client is on the variant shape,
+ * IP-2.5 drops the legacy path.
+ */
+const cartItemSchema = z
+  .object({
+    variantId: z.string().min(1).max(40).optional(),
+    productId: z.string().min(1).max(40).optional(),
+    quantity: z.number().int().min(1).max(99),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.variantId === undefined && v.productId === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Cart item must include variantId (or legacy productId)",
+      })
+    }
+    if (v.variantId !== undefined && v.productId !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Send variantId OR productId, not both",
+      })
+    }
+  })
+
 export const placeOrderBodySchema = z.strictObject({
   addressId: z.string().min(1).max(40),
-  cart: z
-    .array(
-      z.strictObject({
-        productId: z.string().min(1).max(40),
-        quantity: z.number().int().min(1).max(99),
-      }),
-    )
-    .min(1)
-    .max(100),
+  cart: z.array(cartItemSchema).min(1).max(100),
   couponCode: z.string().trim().min(3).max(40).optional(),
   customerNote: z.string().trim().max(500).optional(),
   // COD is the only payment method today; accept it explicitly so the wire

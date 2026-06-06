@@ -55,6 +55,7 @@ function ProgressiveImage({
 }: ProgressiveImageProps) {
   const [loaded, setLoaded] = React.useState(false)
   const [errored, setErrored] = React.useState(false)
+  const imgRef = React.useRef<HTMLImageElement>(null)
 
   const fadeIn = useMotionPreset(tweens.fast)
 
@@ -63,10 +64,19 @@ function ProgressiveImage({
     trimmed.length > 0 &&
     (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
 
-  // Reset internal state when the source changes (image swap).
+  // Reset internal state when the source changes (image swap), then
+  // immediately flip `loaded` true if the browser already has it cached
+  // — onLoad does NOT fire for cached images on some browsers, which
+  // would leave the motion.img stuck at opacity 0 forever (showing only
+  // the placeholder gradient). Checking `.complete` handles that.
   React.useEffect(() => {
-    setLoaded(false)
     setErrored(false)
+    const node = imgRef.current
+    if (node && node.complete && node.naturalWidth > 0) {
+      setLoaded(true)
+    } else {
+      setLoaded(false)
+    }
   }, [trimmed])
 
   if (!isValid || errored) {
@@ -103,6 +113,7 @@ function ProgressiveImage({
       ) : null}
 
       <motion.img
+        ref={imgRef}
         // eslint-disable-next-line @next/next/no-img-element -- intentional, see file header.
         src={trimmed}
         alt={alt}

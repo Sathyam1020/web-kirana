@@ -2,33 +2,68 @@
 
 import { Button } from "@workspace/ui/components/button"
 import { SafeImage } from "@workspace/ui/components/safe-image"
-import type { ProductPublicView, Unit } from "@workspace/api-client"
+import type {
+  ProductPublicVariantView,
+  ProductPublicView,
+  Unit,
+} from "@workspace/api-client"
 import { UNIT_LABELS } from "@workspace/api-client"
-import { Plus, ShoppingBag } from "lucide-react"
+import { ChevronDown, Plus, ShoppingBag } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
+import { useState } from "react"
+
 import { formatPriceFromPaise } from "@/lib/format"
 import { useCart } from "@/lib/cart"
+import { VariantPickerSheet } from "@/components/variant-picker-sheet"
+
+function pickDefaultVariant(
+  product: ProductPublicView,
+): ProductPublicVariantView | null {
+  if (product.variants.length === 0) return null
+  return product.variants.find((v) => v.isDefault) ?? product.variants[0] ?? null
+}
 
 export function ProductCard({
   product,
   storeId,
+  storeName,
 }: {
   product: ProductPublicView
   storeId: string
+  storeName?: string
 }) {
   const cart = useCart()
-  const inCart = cart.itemCount(product.id)
+  const [variantSheetOpen, setVariantSheetOpen] = useState(false)
 
-  // Phase 6.8 — effectivePricePaise already accounts for expiry server-side,
-  // so a strictly-lower effective price means an active discount.
-  const hasDiscount = product.effectivePricePaise < product.pricePaise
+  const hasMultipleVariants = product.variants.length > 1
+  const defaultVariant = pickDefaultVariant(product)
+
+  const inCart = hasMultipleVariants
+    ? cart.productCount(product.id)
+    : defaultVariant !== null
+      ? cart.variantCount(defaultVariant.id)
+      : 0
+
+  const availableVariants = product.variants.filter((v) => v.isAvailable)
+  const cheapestEffective =
+    hasMultipleVariants && availableVariants.length > 0
+      ? Math.min(...availableVariants.map((v) => v.effectivePricePaise))
+      : (defaultVariant?.effectivePricePaise ?? product.effectivePricePaise)
+  const cheapestList =
+    hasMultipleVariants && availableVariants.length > 0
+      ? availableVariants.find((v) => v.effectivePricePaise === cheapestEffective)?.pricePaise ??
+        product.pricePaise
+      : (defaultVariant?.pricePaise ?? product.pricePaise)
+
+  const hasDiscount = cheapestEffective < cheapestList
   const discountLabel = !hasDiscount
     ? null
     : product.discountType === "PERCENT" && product.discountValue !== null
       ? `${product.discountValue}% OFF`
-      : `${formatPriceFromPaise(product.pricePaise - product.effectivePricePaise)} OFF`
+      : `${formatPriceFromPaise(cheapestList - cheapestEffective)} OFF`
 
   return (
+    <>
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
@@ -41,7 +76,7 @@ export function ProductCard({
           fallback={<ShoppingBag className="size-8" />}
         />
         {discountLabel && (
-          <span className="absolute top-1.5 left-1.5 rounded-[var(--radius-sm)] bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+          <span className="absolute top-1.5 left-1.5 rounded-[var(--radius-sm)] bg-discount px-1.5 py-0.5 text-[10px] font-semibold leading-none text-discount-foreground">
             {discountLabel}
           </span>
         )}
@@ -50,27 +85,51 @@ export function ProductCard({
         {product.name}
       </h3>
       <p className="text-xs text-muted-foreground mt-0.5">
-        {unitLabel(product.unit)}
+        {hasMultipleVariants
+          ? `${product.variants.length} sizes`
+          : unitLabel(product.unit)}
       </p>
-      {/* Price on its own line + a full-width Add / stepper below. Stacking
-          (vs side-by-side) keeps the footer clean at every card width — the
-          compact horizontal-scroll cards and the wider grid cards alike. */}
       <div className="mt-2 space-y-2">
-        {hasDiscount ? (
-          <span className="flex items-baseline gap-1.5">
-            <span className="tabular-nums font-semibold text-base">
-              {formatPriceFromPaise(product.effectivePricePaise)}
+        <span className="flex items-baseline gap-1.5">
+          {hasMultipleVariants ? (
+            <span className="text-[10px] text-muted-foreground tracking-wide font-medium uppercase">
+              from
             </span>
+          ) : null}
+          <span className="tabular-nums font-semibold text-base">
+            {formatPriceFromPaise(cheapestEffective)}
+          </span>
+          {hasDiscount ? (
             <span className="tabular-nums text-xs text-muted-foreground line-through">
-              {formatPriceFromPaise(product.pricePaise)}
+              {formatPriceFromPaise(cheapestList)}
             </span>
-          </span>
+          ) : null}
+        </span>
+        {!product.isAvailable ? (
+          <span className="block text-xs text-muted-foreground">Out of stock</span>
+        ) : hasMultipleVariants ? (
+          // IP-2: multi-variant — chip with chevron opens the picker.
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => setVariantSheetOpen(true)}
+            aria-haspopup="dialog"
+          >
+            {inCart > 0 ? (
+              <>
+                <span className="tabular-nums">{inCart}</span>
+                <span aria-hidden className="opacity-50 mx-1">·</span>
+                Add more
+              </>
+            ) : (
+              "Add"
+            )}
+            <ChevronDown className="size-3.5" />
+          </Button>
+        ) : defaultVariant === null ? (
+          <span className="block text-xs text-muted-foreground">Unavailable</span>
         ) : (
-          <span className="block tabular-nums font-semibold text-base">
-            {formatPriceFromPaise(product.pricePaise)}
-          </span>
-        )}
-        {product.isAvailable ? (
           <AnimatePresence mode="wait" initial={false}>
             {inCart > 0 ? (
               <motion.div
@@ -82,7 +141,7 @@ export function ProductCard({
                 className="flex items-center justify-between rounded-full bg-primary text-primary-foreground shadow-sm h-9 w-full"
               >
                 <button
-                  onClick={() => cart.dec(product.id)}
+                  onClick={() => cart.dec(defaultVariant.id)}
                   className="size-9 inline-flex items-center justify-center text-base font-semibold transition-transform active:scale-90"
                   aria-label="Remove one"
                 >
@@ -99,7 +158,7 @@ export function ProductCard({
                   {inCart}
                 </motion.span>
                 <button
-                  onClick={() => cart.inc(product, storeId)}
+                  onClick={() => cart.inc(product, defaultVariant, storeId, storeName)}
                   className="size-9 inline-flex items-center justify-center text-base font-semibold transition-transform active:scale-90"
                   aria-label="Add one"
                 >
@@ -117,7 +176,7 @@ export function ProductCard({
                 <Button
                   size="sm"
                   className="w-full"
-                  onClick={() => cart.inc(product, storeId)}
+                  onClick={() => cart.inc(product, defaultVariant, storeId, storeName)}
                 >
                   <Plus className="size-3.5" />
                   Add
@@ -125,11 +184,19 @@ export function ProductCard({
               </motion.div>
             )}
           </AnimatePresence>
-        ) : (
-          <span className="block text-xs text-muted-foreground">Out of stock</span>
         )}
       </div>
     </motion.div>
+    {hasMultipleVariants ? (
+      <VariantPickerSheet
+        open={variantSheetOpen}
+        onOpenChange={setVariantSheetOpen}
+        product={product}
+        storeId={storeId}
+        storeName={storeName}
+      />
+    ) : null}
+    </>
   )
 }
 

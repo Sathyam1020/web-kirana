@@ -13,13 +13,15 @@ import {
   CartChangedError,
   ConflictError,
   InvalidTransitionError,
+  MinOrderNotMetError,
+  NoVariantSelectedError,
   NotFoundError,
   OutOfServiceAreaError,
   StoreClosedError,
   ValidationError,
 } from "../../lib/errors.js"
 import { logger } from "../../lib/logger.js"
-import { effectivePricePaise } from "../../lib/pricing.js"
+import { effectivePricePaise, effectiveVariantPricePaise } from "../../lib/pricing.js"
 import { computeCouponDiscountPaise } from "../coupons/coupons.service.js"
 import type {
   ListOrdersQuery,
@@ -35,6 +37,13 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
 export interface OrderItemView {
   id: string
   productId: string | null
+  // IP-2 — variant identity snapshot. variantId is null for legacy
+  // (pre-IP-2) orders; variantName / variantUnitValue carry the
+  // human-readable size the customer bought so the order screen renders
+  // "Aashirvaad Atta · 500 g" even after the variant is renamed/removed.
+  variantId: string | null
+  variantName: string | null
+  variantUnitValue: string | null
   nameSnapshot: string
   imageUrlSnapshot: string | null
   unitPricePaiseSnapshot: number
@@ -113,6 +122,11 @@ const ORDER_SELECT = {
     select: {
       id: true,
       productId: true,
+      // IP-2 — variant snapshot fields surface alongside the product
+      // snapshot so receipts / order detail render "Atta · 500 g".
+      variantId: true,
+      variantNameSnapshot: true,
+      variantUnitValueSnapshot: true,
       productNameSnapshot: true,
       productImageUrlSnapshot: true,
       unitPricePaiseSnapshot: true,
@@ -161,6 +175,9 @@ type OrderRow = {
   items: Array<{
     id: string
     productId: string | null
+    variantId: string | null
+    variantNameSnapshot: string | null
+    variantUnitValueSnapshot: unknown // Decimal
     productNameSnapshot: string
     productImageUrlSnapshot: string | null
     unitPricePaiseSnapshot: number
@@ -204,6 +221,12 @@ function toOrderView(row: OrderRow): OrderView {
     items: row.items.map((i) => ({
       id: i.id,
       productId: i.productId,
+      variantId: i.variantId,
+      variantName: i.variantNameSnapshot,
+      variantUnitValue:
+        i.variantUnitValueSnapshot === null || i.variantUnitValueSnapshot === undefined
+          ? null
+          : String(i.variantUnitValueSnapshot),
       nameSnapshot: i.productNameSnapshot,
       imageUrlSnapshot: i.productImageUrlSnapshot,
       unitPricePaiseSnapshot: i.unitPricePaiseSnapshot,
@@ -244,6 +267,47 @@ function isUniqueViolation(err: unknown): boolean {
     err !== null &&
     (err as { code?: string }).code === "P2002"
   )
+}
+
+// --- IP-1 helpers -------------------------------------------------------
+
+/**
+ * IP-1 — compute the delivery fee at placement from the store's current
+ * config. Snapshotted onto Order.deliveryFeePaise, so a later store-config
+ * change can't retroactively alter what the customer agreed to.
+ *
+ * Rules:
+ *   - threshold === 0          → "free delivery isn't offered"; charge base fee
+ *   - subtotal >= threshold > 0 → free (this is the upsell incentive)
+ *   - otherwise                → charge base fee
+ *
+ * Exported for tests + the future cart-side preview (the customer cart
+ * mirrors this so the bill row matches what placement will charge).
+ */
+export function computeDeliveryFeePaise(
+  subtotalPaise: number,
+  store: { baseDeliveryFeePaise: number; freeDeliveryThresholdPaise: number },
+): number {
+  if (store.freeDeliveryThresholdPaise > 0 && subtotalPaise >= store.freeDeliveryThresholdPaise) {
+    return 0
+  }
+  return store.baseDeliveryFeePaise
+}
+
+/**
+ * IP-1 — backend enforcement of `Store.minOrderPaise`. The cart strip
+ * nudges the user; this is the single source of truth that rejects
+ * an order whose subtotal hasn't crossed the threshold. Throws so
+ * callers don't have to remember to check the boolean. No-op when
+ * `minOrderPaise === 0` (store hasn't set a minimum).
+ */
+export function assertMinimumOrderMet(
+  subtotalPaise: number,
+  store: { minOrderPaise: number },
+): void {
+  if (store.minOrderPaise > 0 && subtotalPaise < store.minOrderPaise) {
+    throw new MinOrderNotMetError(store.minOrderPaise, subtotalPaise)
+  }
 }
 
 // --- Placement ----------------------------------------------------------
@@ -306,38 +370,113 @@ export async function placeOrder(
         select: { name: true, phone: true },
       })
 
-      // 3. Re-read every product; reject if any vanished / went unavailable.
-      const products = await tx.product.findMany({
-        where: { id: { in: body.cart.map((i) => i.productId) }, isActive: true },
+      // 3. IP-2 — resolve every cart item to a ProductVariant. Items
+      //    arrive as either `{variantId}` (new shape) or `{productId}`
+      //    (legacy — resolves to that product's default variant). One
+      //    batched lookup per shape, then a single batched variant
+      //    fetch that joins the parent product for availability checks.
+      const legacyProductIds = body.cart
+        .filter((i) => i.variantId === undefined && i.productId !== undefined)
+        .map((i) => i.productId as string)
+
+      const defaultsByProductId = new Map<string, string>()
+      if (legacyProductIds.length > 0) {
+        const defaults = await tx.productVariant.findMany({
+          where: { productId: { in: legacyProductIds }, isDefault: true },
+          select: { id: true, productId: true },
+        })
+        for (const d of defaults) {
+          defaultsByProductId.set(d.productId, d.id)
+        }
+      }
+
+      const resolvedVariantIds: string[] = []
+      for (const item of body.cart) {
+        if (item.variantId !== undefined) {
+          resolvedVariantIds.push(item.variantId)
+        } else if (item.productId !== undefined) {
+          const vId = defaultsByProductId.get(item.productId)
+          if (vId === undefined) {
+            // Legacy item points at a product with no default variant.
+            // Should be impossible post-backfill; surface honestly so the
+            // client can re-prompt.
+            throw new NoVariantSelectedError(
+              `No default variant exists for product ${item.productId}`,
+            )
+          }
+          resolvedVariantIds.push(vId)
+        } else {
+          // Schema already rejected this; defensive.
+          throw new NoVariantSelectedError()
+        }
+      }
+
+      const variants = await tx.productVariant.findMany({
+        where: { id: { in: resolvedVariantIds } },
         select: {
           id: true,
-          storeId: true,
           name: true,
-          imageUrl: true,
+          unitValue: true,
           unit: true,
           pricePaise: true,
-          discountType: true,
-          discountValue: true,
-          discountValidUntil: true,
           isAvailable: true,
-          subcategory: { select: { isAvailable: true } },
+          imageUrl: true,
+          product: {
+            select: {
+              id: true,
+              storeId: true,
+              name: true,
+              imageUrl: true,
+              isActive: true,
+              isAvailable: true,
+              discountType: true,
+              discountValue: true,
+              discountValidUntil: true,
+              subcategory: { select: { isAvailable: true } },
+            },
+          },
         },
       })
-      const byId = new Map(products.map((p) => [p.id, p]))
-      const changed = body.cart
-        .filter((item) => {
-          const p = byId.get(item.productId)
-          return p === undefined || !p.isAvailable || !p.subcategory.isAvailable
-        })
-        .map((item) => item.productId)
-      if (changed.length > 0) {
+      const variantById = new Map(variants.map((v) => [v.id, v]))
+
+      // Validate availability for every cart line. Surfaces variant ids
+      // (and product ids) so the client can mark exactly the offending
+      // rows in the cart UI.
+      type Resolved = {
+        cartItem: (typeof body.cart)[number]
+        variant: NonNullable<ReturnType<typeof variantById.get>>
+      }
+      const resolved: Resolved[] = []
+      const unavailable: string[] = []
+      for (let i = 0; i < body.cart.length; i++) {
+        const cartItem = body.cart[i] as (typeof body.cart)[number]
+        const variantId = resolvedVariantIds[i] as string
+        const variant = variantById.get(variantId)
+        if (variant === undefined) {
+          unavailable.push(variantId)
+          continue
+        }
+        const product = variant.product
+        if (
+          !product.isActive ||
+          !product.isAvailable ||
+          !product.subcategory.isAvailable ||
+          !variant.isAvailable
+        ) {
+          unavailable.push(variantId)
+          continue
+        }
+        resolved.push({ cartItem, variant })
+      }
+      if (unavailable.length > 0) {
         throw new CartChangedError("Some items are no longer available", {
-          products: changed,
+          variants: unavailable,
         })
       }
 
-      // 4. Single-store cart.
-      const storeIds = new Set(products.map((p) => p.storeId))
+      // 4. Single-store cart — read storeId off any resolved variant's
+      //    product since they all must agree.
+      const storeIds = new Set(resolved.map((r) => r.variant.product.storeId))
       if (storeIds.size > 1) {
         throw new ValidationError("Cart spans multiple stores")
       }
@@ -351,6 +490,11 @@ export async function placeOrder(
           phone: true,
           isOpen: true,
           minOrderPaise: true,
+          // IP-1 — fee + free-above-threshold inputs for delivery-fee
+          // computation. Pulled here so the same SELECT covers both the
+          // open/closed gate and pricing without a second round-trip.
+          baseDeliveryFeePaise: true,
+          freeDeliveryThresholdPaise: true,
           deliveryRadiusMeters: true,
         },
       })
@@ -358,29 +502,37 @@ export async function placeOrder(
       if (!store.isOpen) throw new StoreClosedError()
 
       // 6. Subtotal from effective (discounted) prices + line snapshots.
+      //    IP-1: minOrder is enforced AFTER subtotal compute so the error
+      //    detail carries the actual sum.
+      //    IP-2: per-line snapshot now records the variant identity +
+      //    sizing alongside the existing product snapshots. The image
+      //    snapshot RESOLVES variant.imageUrl ?? product.imageUrl so the
+      //    receipt shows what the customer saw at order time, even after
+      //    the variant or product image changes later.
       let itemsSubtotalPaise = 0
-      const itemRows = body.cart.map((item) => {
-        const p = byId.get(item.productId) as NonNullable<ReturnType<typeof byId.get>>
-        const unit = effectivePricePaise(p)
-        const lineTotalPaise = unit * item.quantity
+      const itemRows = resolved.map(({ cartItem, variant }) => {
+        const product = variant.product
+        const unit = effectiveVariantPricePaise(variant, product)
+        const lineTotalPaise = unit * cartItem.quantity
         itemsSubtotalPaise += lineTotalPaise
         return {
-          productId: p.id,
-          productNameSnapshot: p.name,
-          productImageUrlSnapshot: p.imageUrl,
+          productId: product.id,
+          variantId: variant.id,
+          productNameSnapshot: product.name,
+          productImageUrlSnapshot: variant.imageUrl ?? product.imageUrl,
           unitPricePaiseSnapshot: unit,
-          unitSnapshot: p.unit,
-          quantity: item.quantity,
+          unitSnapshot: variant.unit,
+          variantNameSnapshot: variant.name,
+          variantUnitValueSnapshot: variant.unitValue,
+          quantity: cartItem.quantity,
           lineTotalPaise,
         }
       })
 
-      // 7. Minimum order.
-      if (itemsSubtotalPaise < store.minOrderPaise) {
-        throw new CartChangedError("Order is below the store's minimum", {
-          minOrderPaise: store.minOrderPaise,
-        })
-      }
+      // 7. Minimum order. IP-1: typed error with both required + actual
+      // paise in the details so the client can render "Add ₹X more" without
+      // recomputing from the store config it may not have cached.
+      assertMinimumOrderMet(itemsSubtotalPaise, store)
 
       // 8. Service area — delivery point within the store's radius.
       const lat = Number(address.latitude)
@@ -451,7 +603,9 @@ export async function placeOrder(
         couponTotalUsageLimit = coupon.totalUsageLimit
       }
 
-      const deliveryFeePaise = 0
+      // IP-1: real delivery fee from store config. Snapshotted onto Order
+      // so a tomorrow's fee change doesn't retro-alter this order.
+      const deliveryFeePaise = computeDeliveryFeePaise(itemsSubtotalPaise, store)
       const totalPaise = itemsSubtotalPaise - discountPaise + deliveryFeePaise
 
       // 10. Create the order + items + initial status-history entry.

@@ -1,63 +1,106 @@
 "use client"
 
-import type { ProductPublicView } from "@workspace/api-client"
+/**
+ * Customer cart slice — keyed by VARIANT id, not product id.
+ *
+ * IP-2 migrated this from product-keyed to variant-keyed because a
+ * product can now have multiple sizes (variants) and the customer can
+ * buy more than one size of the same product in a single order. Without
+ * variant-keying, picking a 1 kg pack would overwrite a 500 g pack
+ * already in the cart.
+ *
+ * Each CartItem snapshots the product + variant identity + the effective
+ * price at add time. The server re-validates on placement so a stale
+ * snapshot can't actually charge the customer the wrong amount.
+ */
+
+import type { ProductPublicView, ProductPublicVariantView } from "@workspace/api-client"
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 
+/**
+ * One line item in the customer's cart. The KEY in the `items` dict is
+ * the variant id; this shape carries everything the UI needs to render
+ * the row without re-fetching the product (cart page, cart pill).
+ */
 export interface CartItem {
+  variantId: string
   productId: string
-  name: string
+  productName: string
+  variantName: string
+  /** Numeric quantity in the variant's `unit` (e.g. 500 for "500 g"). */
+  unitValue: string
+  unit: ProductPublicView["unit"]
+  /** Effective price per unit at add time (product discount applied). */
   pricePaise: number
   imageUrl: string | null
   quantity: number
-  unit: ProductPublicView["unit"]
 }
 
 /** Surfaced when the user tries to add from a store different from cart.storeId. */
 export interface StoreSwitchPrompt {
   pendingProduct: ProductPublicView
+  pendingVariant: ProductPublicVariantView
   pendingStoreId: string
   pendingStoreName: string | null
 }
 
 interface CartState {
   storeId: string | null
-  /** Snapshot of the store's display name at the time items were first added,
-   *  so the cart pill can render "Hampi Kirani" without a second store fetch. */
   storeName: string | null
   items: Record<string, CartItem>
-  /** Set when `inc` was blocked by single-store guard. UI shows a confirm dialog. */
   pendingSwitch: StoreSwitchPrompt | null
-  inc: (product: ProductPublicView, storeId: string, storeName?: string) => void
-  incById: (productId: string) => void
-  dec: (productId: string) => void
-  remove: (productId: string) => void
+  inc: (
+    product: ProductPublicView,
+    variant: ProductPublicVariantView,
+    storeId: string,
+    storeName?: string,
+  ) => void
+  /** Step up an already-in-cart variant by its variantId. No-op if missing. */
+  incVariant: (variantId: string) => void
+  dec: (variantId: string) => void
+  remove: (variantId: string) => void
   clear: () => void
   cancelSwitch: () => void
   confirmSwitch: () => void
-  itemCount: (productId: string) => number
+  /** Quantity of a SPECIFIC variant in the cart. */
+  variantCount: (variantId: string) => number
+  /** Aggregate quantity of ANY variant of a given product. Drives the
+   *  "N · Add more" badge on multi-variant cards. */
+  productCount: (productId: string) => number
   totalItems: () => number
   subtotalPaise: () => number
+}
+
+function buildItem(
+  product: ProductPublicView,
+  variant: ProductPublicVariantView,
+  quantity: number,
+): CartItem {
+  return {
+    variantId: variant.id,
+    productId: product.id,
+    productName: product.name,
+    variantName: variant.name,
+    unitValue: variant.unitValue,
+    unit: variant.unit,
+    // effectivePricePaise on the variant already has the product-level
+    // discount applied (see effectiveVariantPricePaise on the server).
+    pricePaise: variant.effectivePricePaise,
+    imageUrl: variant.imageUrl ?? product.imageUrl,
+    quantity,
+  }
 }
 
 function addOne(
   items: Record<string, CartItem>,
   product: ProductPublicView,
+  variant: ProductPublicVariantView,
 ): Record<string, CartItem> {
-  const existing = items[product.id]
+  const existing = items[variant.id]
   return {
     ...items,
-    [product.id]: {
-      productId: product.id,
-      name: product.name,
-      // Phase 6.8 — store the discounted (effective) price so the cart total
-      // reflects active product discounts. Order placement re-validates server-
-      // side anyway.
-      pricePaise: product.effectivePricePaise,
-      imageUrl: product.imageUrl,
-      unit: product.unit,
-      quantity: (existing?.quantity ?? 0) + 1,
-    },
+    [variant.id]: buildItem(product, variant, (existing?.quantity ?? 0) + 1),
   }
 }
 
@@ -68,12 +111,13 @@ export const useCart = create<CartState>()(
       storeName: null,
       items: {},
       pendingSwitch: null,
-      inc: (product, storeId, storeName) => {
+      inc: (product, variant, storeId, storeName) => {
         const state = get()
         if (state.storeId !== null && state.storeId !== storeId) {
           set({
             pendingSwitch: {
               pendingProduct: product,
+              pendingVariant: variant,
               pendingStoreId: storeId,
               pendingStoreName: storeName ?? null,
             },
@@ -81,40 +125,38 @@ export const useCart = create<CartState>()(
           return
         }
         set({
-          items: addOne(state.items, product),
+          items: addOne(state.items, product, variant),
           storeId,
-          // Snapshot the name on the first add at this store so we don't
-          // overwrite a known name with an undefined later call.
           storeName: state.storeName ?? storeName ?? null,
         })
       },
-      incById: (productId) =>
+      incVariant: (variantId) =>
         set((prev) => {
-          const existing = prev.items[productId]
+          const existing = prev.items[variantId]
           if (!existing) return prev
           return {
             items: {
               ...prev.items,
-              [productId]: { ...existing, quantity: existing.quantity + 1 },
+              [variantId]: { ...existing, quantity: existing.quantity + 1 },
             },
           }
         }),
-      dec: (productId) =>
+      dec: (variantId) =>
         set((prev) => {
-          const existing = prev.items[productId]
+          const existing = prev.items[variantId]
           if (!existing) return prev
           const next = { ...prev.items }
-          if (existing.quantity <= 1) delete next[productId]
-          else next[productId] = { ...existing, quantity: existing.quantity - 1 }
+          if (existing.quantity <= 1) delete next[variantId]
+          else next[variantId] = { ...existing, quantity: existing.quantity - 1 }
           const cleared = Object.keys(next).length === 0
           return cleared
             ? { items: {}, storeId: null, storeName: null }
             : { items: next }
         }),
-      remove: (productId) =>
+      remove: (variantId) =>
         set((prev) => {
           const next = { ...prev.items }
-          delete next[productId]
+          delete next[variantId]
           const cleared = Object.keys(next).length === 0
           return cleared
             ? { items: {}, storeId: null, storeName: null }
@@ -126,13 +168,20 @@ export const useCart = create<CartState>()(
         set((prev) => {
           if (!prev.pendingSwitch) return prev
           return {
-            items: addOne({}, prev.pendingSwitch.pendingProduct),
+            items: addOne({}, prev.pendingSwitch.pendingProduct, prev.pendingSwitch.pendingVariant),
             storeId: prev.pendingSwitch.pendingStoreId,
             storeName: prev.pendingSwitch.pendingStoreName,
             pendingSwitch: null,
           }
         }),
-      itemCount: (productId) => get().items[productId]?.quantity ?? 0,
+      variantCount: (variantId) => get().items[variantId]?.quantity ?? 0,
+      productCount: (productId) => {
+        let n = 0
+        for (const item of Object.values(get().items)) {
+          if (item.productId === productId) n += item.quantity
+        }
+        return n
+      },
       totalItems: () =>
         Object.values(get().items).reduce((acc, x) => acc + x.quantity, 0),
       subtotalPaise: () =>
@@ -144,6 +193,20 @@ export const useCart = create<CartState>()(
     {
       name: "kirana.cart",
       storage: createJSONStorage(() => localStorage),
+      // Bumped to 2 in IP-2: items used to be keyed by productId with a
+      // smaller CartItem shape. The cheapest correct migration is to
+      // clear the cart on first load after the deploy and let the
+      // customer re-add — anything else requires async product lookups
+      // we don't have available inside the migrate fn. UX impact is
+      // small: most customers aren't in the middle of an in-progress
+      // cart between deploys, and Buy Again surfaces past purchases.
+      version: 2,
+      migrate: (_persistedState, version) => {
+        if (version < 2) {
+          return { storeId: null, storeName: null, items: {} }
+        }
+        return _persistedState as { storeId: null; storeName: null; items: {} }
+      },
       // Don't persist the transient prompt state.
       partialize: (state) => ({
         storeId: state.storeId,

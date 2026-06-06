@@ -1,7 +1,8 @@
 import { join, sql, type Sql } from "@prisma/client-runtime-utils"
 import { prisma } from "../../db/prisma.js"
-import type { Unit } from "../../generated/prisma/enums.js"
+import type { DiscountType, Unit } from "../../generated/prisma/enums.js"
 import { ValidationError } from "../../lib/errors.js"
+import { effectiveVariantPricePaise } from "../../lib/pricing.js"
 
 /**
  * Hybrid scoring: FTS rank, trigram similarity, alias exact match, and
@@ -18,6 +19,24 @@ import { ValidationError } from "../../lib/errors.js"
  * owner sees their own inactive/unavailable products too. The customer
  * endpoint never sets it.
  */
+
+/**
+ * IP-2 — variant payload on each hit. Matches the public-view shape
+ * exposed via `toPublicProductView` so search-result product cards
+ * exercise the same multi-variant trigger as the home-rail cards.
+ */
+export interface SearchHitVariant {
+  id: string
+  name: string
+  unitValue: string
+  unit: Unit
+  pricePaise: number
+  effectivePricePaise: number
+  isAvailable: boolean
+  isDefault: boolean
+  sortOrder: number
+  imageUrl: string | null
+}
 
 export interface SearchHit {
   id: string
@@ -38,6 +57,8 @@ export interface SearchHit {
   imageUrl: string | null
   isAvailable: boolean
   isActive: boolean
+  /** IP-2 — sized SKUs. Always ≥1 for IP-2+ products. */
+  variants: SearchHitVariant[]
   /** Hybrid score in [0, 1+] range. Higher = better. */
   score: number
 }
@@ -88,6 +109,12 @@ interface RawHit {
   imageUrl: string | null
   isAvailable: boolean
   isActive: boolean
+  // IP-2 — needed to compute per-variant effectivePricePaise after the
+  // variants follow-up query. Same discount fields the public view path
+  // pulls from Product (per-variant discount is deferred).
+  discountType: DiscountType | null
+  discountValue: number | null
+  discountValidUntil: Date | null
   score: number
 }
 
@@ -203,6 +230,9 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
       p."imageUrl",
       p."isAvailable",
       p."isActive",
+      p."discountType",
+      p."discountValue",
+      p."discountValidUntil",
       ${scoreExpr} AS score
     FROM "Product" p
     JOIN "Store"       s  ON s.id  = p."storeId"
@@ -217,6 +247,56 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
 
   const hasMore = rows.length > limit
   const trimmed = hasMore ? rows.slice(0, limit) : rows
+
+  // IP-2 — second round-trip fetches every hit's variants in one batch
+  // and attaches them to each result with effectivePricePaise computed
+  // per-variant (product-level discount applied). Skipped when the
+  // initial result set is empty.
+  const variantsByProductId = new Map<string, SearchHitVariant[]>()
+  if (trimmed.length > 0) {
+    const ids = trimmed.map((r) => r.id)
+    const productById = new Map(trimmed.map((r) => [r.id, r]))
+    const variantRows = await prisma.productVariant.findMany({
+      where: { productId: { in: ids } },
+      select: {
+        id: true,
+        productId: true,
+        name: true,
+        unitValue: true,
+        unit: true,
+        pricePaise: true,
+        isAvailable: true,
+        isDefault: true,
+        sortOrder: true,
+        imageUrl: true,
+      },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    })
+    for (const v of variantRows) {
+      const parent = productById.get(v.productId)
+      if (parent === undefined) continue
+      const list = variantsByProductId.get(v.productId) ?? []
+      list.push({
+        id: v.id,
+        name: v.name,
+        unitValue: String(v.unitValue),
+        unit: v.unit,
+        pricePaise: v.pricePaise,
+        effectivePricePaise: effectiveVariantPricePaise(v, {
+          discountType: parent.discountType,
+          discountValue: parent.discountValue,
+          discountValidUntil: parent.discountValidUntil,
+        }),
+        isAvailable: v.isAvailable,
+        isDefault: v.isDefault,
+        sortOrder: v.sortOrder,
+        // Variant image with fallback to the product's image — same
+        // resolution the public view does at the wire boundary.
+        imageUrl: v.imageUrl ?? parent.imageUrl,
+      })
+      variantsByProductId.set(v.productId, list)
+    }
+  }
 
   return {
     items: trimmed.map((row) => ({
@@ -236,6 +316,7 @@ export async function searchProducts(opts: SearchOpts): Promise<SearchResult> {
       imageUrl: row.imageUrl,
       isAvailable: row.isAvailable,
       isActive: row.isActive,
+      variants: variantsByProductId.get(row.id) ?? [],
       score: Number(row.score),
     })),
     page,

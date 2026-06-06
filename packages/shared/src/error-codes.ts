@@ -19,6 +19,14 @@ export const ErrorCode = {
   INVALID_TRANSITION: "INVALID_TRANSITION",
   IDEMPOTENCY_REPLAY: "IDEMPOTENCY_REPLAY",
   MAX_ADDRESSES_REACHED: "MAX_ADDRESSES_REACHED",
+  // IP-1: subtotal < Store.minOrderPaise at placement. Details carry
+  // requiredPaise + actualPaise so the client can render an honest message.
+  MIN_ORDER_NOT_MET: "MIN_ORDER_NOT_MET",
+  // IP-2: product CRUD invariants + cart-item shape errors.
+  PRODUCT_MISSING_VARIANTS: "PRODUCT_MISSING_VARIANTS",
+  MULTIPLE_DEFAULT_VARIANTS: "MULTIPLE_DEFAULT_VARIANTS",
+  NO_VARIANT_SELECTED: "NO_VARIANT_SELECTED",
+  SKU_CONFLICT: "SKU_CONFLICT",
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

@@ -29,7 +29,6 @@ import { motion } from "motion/react"
 
 import { BuyAgainSheet } from "@/components/buy-again-sheet"
 import { ProductRail } from "@/components/product-rail"
-import { formatPriceFromPaise } from "@/lib/format"
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
 import { useState } from "react"
@@ -72,55 +71,36 @@ export function BuyAgainRail({
 
   const reorderableItems = lastOrder.items.filter(isReorderable)
   const reorderable = reorderableItems.length > 0
-  const itemCount = reorderableItems.length
-  const total = lastOrder.totalPaise
 
   return (
-    <section aria-label={`Buy again from ${storeName}`} className="space-y-3">
-      <div className="flex items-end justify-between">
-        <h3 className="text-base font-semibold">
-          Buy again from <span className="text-primary">{storeName}</span>
+    <section aria-label="Buy again" className="space-y-3">
+      {/* Section header — title left, single Reorder chip right. Tap
+          opens the BuyAgainSheet (which shows item list + Reorder all
+          CTA). Dropped the separate "See all" link — it did the same
+          thing, so two affordances was redundant. */}
+      <div className="flex items-end justify-between gap-2">
+        <h3 className="text-[15px] font-semibold min-w-0 truncate">
+          Buy again
         </h3>
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          See all
-        </button>
+        {reorderable ? (
+          <motion.button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            whileTap={{ scale: tapScale }}
+            transition={tap}
+            className={cn(
+              "inline-flex items-center gap-1.5 h-7 px-3 rounded-full shrink-0",
+              "border border-primary text-primary text-[11px] font-semibold tracking-wide",
+              "bg-card hover:bg-primary/5 transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+            aria-label="Reorder your previous order"
+          >
+            <RefreshCw className="size-3" strokeWidth={2.5} aria-hidden />
+            Reorder previous order
+          </motion.button>
+        ) : null}
       </div>
-
-      {/* Primary reorder pill — opens the sheet (does not bulk-add). */}
-      {reorderable ? (
-        <motion.button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          whileTap={{ scale: tapScale }}
-          transition={tap}
-          className={cn(
-            "flex w-full items-center justify-between gap-3 px-4 py-3",
-            "rounded-[var(--radius-md)] bg-primary text-primary-foreground shadow-card",
-            "text-left transition-colors hover:bg-primary-active",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          )}
-        >
-          <span className="flex items-center gap-3 min-w-0">
-            <span className="inline-flex size-9 items-center justify-center rounded-full bg-primary-foreground/15 shrink-0">
-              <RefreshCw className="size-4" aria-hidden />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold leading-tight">
-                Reorder last order
-              </span>
-              <span className="block text-xs text-primary-foreground/85 mt-0.5 truncate">
-                {itemCount} item{itemCount === 1 ? "" : "s"} ·{" "}
-                <span className="tabular-nums">{formatPriceFromPaise(total)}</span>
-              </span>
-            </span>
-          </span>
-          <span className="text-xs font-medium shrink-0">Review</span>
-        </motion.button>
-      ) : null}
 
       {/* Compact tiles for one-tap individual re-adds */}
       <ProductRail

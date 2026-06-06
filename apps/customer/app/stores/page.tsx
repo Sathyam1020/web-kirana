@@ -22,8 +22,19 @@
 import type {
   OrderItemView,
   ProductPublicView,
+  StoreNearbyHit,
 } from "@workspace/api-client"
 import { useApi, useAuthStore } from "@workspace/auth"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
 import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -34,16 +45,20 @@ import { useEffect, useState } from "react"
 import { BuyAgainRail } from "@/components/buy-again-rail"
 import { ChooseStoreSheet } from "@/components/choose-store-sheet"
 import { CouponCarousel } from "@/components/coupon-carousel"
+import { DeliverToPicker } from "@/components/deliver-to-picker"
 import { DepartmentSections } from "@/components/department-sections"
+import { ExpiringOfferRibbon } from "@/components/expiring-offer-ribbon"
 import { HomeHeader } from "@/components/home-header"
 import {
   NoLocationIllustration,
   NoStoresIllustration,
 } from "@/components/illustrations"
+import { MinOrderStrip } from "@/components/min-order-strip"
 import { OtherStoresRail } from "@/components/other-stores-rail"
 import { PrimaryStoreHero } from "@/components/primary-store-hero"
 import { ProductRail } from "@/components/product-rail"
 import { useCart } from "@/lib/cart"
+import { useDeliveryContext } from "@/lib/delivery-context"
 import { useUserLocation } from "@/lib/location"
 import { useSelectedStore } from "@/lib/selected-store"
 import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
@@ -78,6 +93,11 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
+    // IP-2: Buy-Again shim. Order snapshots don't carry the full variant
+    // list (only the one the customer bought). The reorder rail re-adds
+    // that specific variant via the existing add-to-cart flow against
+    // the variantId stored on the order item; no chips needed here.
+    variants: [],
   }
 }
 
@@ -89,20 +109,40 @@ export default function HomePage() {
     status: locStatus,
     request: requestLocation,
   } = useUserLocation()
+  // IP-4 — coords priority:
+  //   1. delivery context (saved address picked OR GPS committed via picker)
+  //   2. live GPS as the implicit default for first-run customers
+  // The home re-fires the nearby query when EITHER changes; the picker
+  // also invalidates `["stores","nearby"]` on commit so the swap is
+  // immediate and not gated on this effect re-running.
+  const ctx = useDeliveryContext()
+  const effectiveCoords =
+    ctx.coords ?? (location !== null ? { lat: location.lat, lng: location.lng } : null)
 
   const selected = useSelectedStore()
   const cart = useCart()
   const [chooseStoreOpen, setChooseStoreOpen] = useState(false)
+  // IP-4 — separate picker instance for the "no stores in this region"
+  // empty state. Lets the customer recover without scrolling back up to
+  // tap the header pill.
+  const [emptyPickerOpen, setEmptyPickerOpen] = useState(false)
+  // Holds the store the customer wants to switch to, when the current
+  // cart has items from a different store. Drives the confirm dialog —
+  // replaces the old `window.confirm()` which was ugly + accessibility-
+  // hostile + un-themeable.
+  const [pendingSwitch, setPendingSwitch] = useState<StoreNearbyHit | null>(
+    null,
+  )
   const fadeIn = useMotionPreset(tweens.fast)
 
   // --- Nearby query (every store within delivery reach) -------------------
   const nearbyQuery = useQuery({
-    queryKey: ["stores", "nearby", location?.lat, location?.lng],
-    enabled: location !== null,
+    queryKey: ["stores", "nearby", effectiveCoords?.lat, effectiveCoords?.lng],
+    enabled: effectiveCoords !== null,
     queryFn: () =>
       api.stores.nearby({
-        lat: location!.lat,
-        lng: location!.lng,
+        lat: effectiveCoords!.lat,
+        lng: effectiveCoords!.lng,
         radiusMeters: 50_000,
         limit: 30,
         includeClosed: true,
@@ -111,10 +151,25 @@ export default function HomePage() {
   })
 
   // Auto-derive primary store on first load; prefer nearest open.
+  // IP-4 safety net: if the persisted pick isn't in the current nearby
+  // response (e.g. customer reloaded with picker pointing at a different
+  // city than the one they last shopped in), force-re-derive instead of
+  // letting `userPicked = true` strand them on a stale id → white screen.
   useEffect(() => {
     if (!nearbyQuery.data) return
     const items = nearbyQuery.data.items
-    if (items.length === 0) return
+    if (items.length === 0) {
+      if (selected.storeId !== null) selected.reset()
+      return
+    }
+    const stalePick =
+      selected.storeId !== null &&
+      !items.some((s) => s.id === selected.storeId)
+    if (stalePick) {
+      const preferOpen = items.find((s) => s.isOpen) ?? items[0]
+      if (preferOpen) selected.select(preferOpen.id)
+      return
+    }
     const preferOpen = items.find((s) => s.isOpen) ?? items[0]
     if (preferOpen) selected.hydrateIfEmpty(preferOpen.id)
   }, [nearbyQuery.data, selected])
@@ -177,6 +232,14 @@ export default function HomePage() {
   })
 
   // --- Switch-store flow ---------------------------------------------------
+  function commitStoreSwitch(storeId: string): void {
+    selected.select(storeId)
+    setChooseStoreOpen(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+
   function handlePickStore(storeId: string) {
     if (storeId === selected.storeId) {
       setChooseStoreOpen(false)
@@ -185,31 +248,58 @@ export default function HomePage() {
     const cartHasOtherStore =
       cart.storeId !== null && cart.storeId !== storeId && cart.totalItems() > 0
     if (cartHasOtherStore) {
-      const ok = window.confirm(
-        "Your cart has items from a different store. Switching will clear your cart. Continue?",
-      )
-      if (!ok) return
-      cart.clear()
+      const targetStore = allStores.find((s) => s.id === storeId)
+      if (targetStore !== undefined) {
+        setPendingSwitch(targetStore)
+        // Close the choose-store sheet so the AlertDialog gets focus
+        // without nested-modal stacking; we'll route back to the home
+        // post-confirm.
+        setChooseStoreOpen(false)
+        return
+      }
     }
-    selected.select(storeId)
-    setChooseStoreOpen(false)
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" })
-    }
+    commitStoreSwitch(storeId)
   }
 
+  function confirmPendingSwitch(): void {
+    if (pendingSwitch === null) return
+    cart.clear()
+    const storeId = pendingSwitch.id
+    setPendingSwitch(null)
+    commitStoreSwitch(storeId)
+  }
+
+  // --- Render buckets -----------------------------------------------------
+  // The home reveals progressively rather than behind a full-page gate:
+  //   1. Location not yet shared       → "Where are you?" empty state
+  //   2. First nearby fetch in flight  → HomeSkeleton (section-shaped)
+  //   3. Primary store derived         → hero + rails; each rail skeletons
+  //                                       itself off its own query so the
+  //                                       store paints the moment its id
+  //                                       is known, not after every query.
   return (
     <div className="min-h-svh bg-background pb-32">
       <HomeHeader />
 
+      {/* Min-order strip sits between the sticky header and the page
+          body — sticky-feeling by virtue of being attached to a sticky
+          header above and showing only when relevant. */}
+      {primaryStore ? (
+        <MinOrderStrip
+          storeId={primaryStore.id}
+          minOrderPaise={primaryStore.minOrderPaise}
+          freeDeliveryThresholdPaise={primaryStore.freeDeliveryThresholdPaise}
+        />
+      ) : null}
+
       {/* Quick-commerce is mobile-first by nature. On tablet+, center a
-          phone-shaped column rather than stretching content edge-to-edge
-          (which left rails marooned on the left and stat pills floating
-          alone). max-w-md ≈ 448px keeps the feel of the design intact at
-          every viewport. */}
+          phone-shaped column rather than stretching content edge-to-edge.
+          max-w-md ≈ 448px keeps the feel of the design intact at every
+          viewport. */}
       <main className="max-w-md mx-auto px-4 py-5 space-y-6">
-        {/* No location → ask for it */}
-        {location === null && locStatus !== "requesting" ? (
+        {/* No location → ask for it. Only when context is empty AND GPS
+            hasn't resolved AND we're not mid-request. */}
+        {effectiveCoords === null && locStatus !== "requesting" ? (
           <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
             <NoLocationIllustration className="w-44" />
             <h2 className="text-base font-semibold">Where are you?</h2>
@@ -222,8 +312,8 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {/* Loading the first nearby fetch */}
-        {nearbyQuery.isPending && location !== null ? <HomeSkeleton /> : null}
+        {/* Loading the first nearby fetch → section-shaped skeleton. */}
+        {nearbyQuery.isPending && effectiveCoords !== null ? <HomeSkeleton /> : null}
 
         {/* Network errored */}
         {nearbyQuery.isError ? (
@@ -234,20 +324,35 @@ export default function HomePage() {
           />
         ) : null}
 
-        {/* No stores in zone */}
+        {/* No stores in zone. IP-4 — address-aware copy + change-address
+            CTA so the customer recovers from a picked address that
+            doesn't have coverage yet. */}
         {nearbyQuery.data && allStores.length === 0 ? (
           <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
             <NoStoresIllustration className="w-44" />
             <h2 className="text-base font-semibold">
-              No kirana stores in your area yet
+              {ctx.label !== null && !ctx.isGPS
+                ? `No kirana stores deliver to ${ctx.label} yet`
+                : "No kirana stores in your area yet"}
             </h2>
             <p className="text-sm text-muted-foreground max-w-xs">
-              We&rsquo;re expanding to more neighbourhoods soon. Check back later.
+              {ctx.label !== null && !ctx.isGPS
+                ? "Try a different saved address, or switch back to your current location."
+                : "We’re expanding to more neighbourhoods soon. Check back later."}
             </p>
+            <Button
+              variant="secondary"
+              onClick={() => setEmptyPickerOpen(true)}
+              className="mt-1"
+            >
+              Change delivery address
+            </Button>
           </div>
         ) : null}
 
-        {/* Primary store hero + everything below */}
+        {/* Primary store hero + everything below — renders as soon as the
+            primary store id is known; each rail skeletons itself off its
+            own query so the store paints fast. */}
         {primaryStore ? (
           <motion.div
             key={primaryStore.id}
@@ -256,9 +361,14 @@ export default function HomePage() {
             transition={fadeIn}
             className="space-y-6"
           >
+            {/* Above-the-fold urgency: soonest-expiring coupon (≤48h).
+                Silent when nothing is expiring soon. */}
+            <ExpiringOfferRibbon coupons={couponsQuery.data?.items} />
+
             <PrimaryStoreHero
               store={primaryStore}
               stats={detailQuery.data?.stats}
+              nearbyCount={allStores.length}
               onChangeStore={() => setChooseStoreOpen(true)}
             />
 
@@ -267,7 +377,6 @@ export default function HomePage() {
                 category tiles), matching the /stores/[id] pattern. */}
             <DepartmentSections
               storeId={primaryStore.id}
-              storeName={primaryStore.name}
               departments={detailQuery.data?.departments}
               isLoading={detailQuery.isPending}
             />
@@ -282,13 +391,7 @@ export default function HomePage() {
             />
 
             <ProductRail
-              title={
-                <>
-                  Featured at{" "}
-                  <span className="text-primary">{primaryStore.name}</span>
-                </>
-              }
-              seeAllHref={`/stores/${primaryStore.id}`}
+              title="Featured"
               products={detailQuery.data?.featuredProducts}
               storeId={primaryStore.id}
               storeName={primaryStore.name}
@@ -298,18 +401,12 @@ export default function HomePage() {
 
             {/* Per-category product rails — mirrors /stores/[id]'s
                 categorySections so the home becomes a one-screen browse
-                of the store's catalogue, not just a featured-only teaser.
-                Each section header taps through to the dual-pane drilldown. */}
+                of the store's catalogue, not just a featured-only teaser. */}
             {detailQuery.data?.categorySections.map((section) =>
               section.products.length === 0 ? null : (
                 <ProductRail
                   key={section.category.id}
                   title={section.category.name}
-                  seeAllHref={
-                    section.hasMore
-                      ? `/stores/${primaryStore.id}/categories/${section.category.id}`
-                      : undefined
-                  }
                   products={section.products}
                   storeId={primaryStore.id}
                   storeName={primaryStore.name}
@@ -328,7 +425,6 @@ export default function HomePage() {
               stores={otherStores}
               isLoading={nearbyQuery.isPending}
               onPickStore={handlePickStore}
-              onSeeAll={() => setChooseStoreOpen(true)}
             />
           </motion.div>
         ) : null}
@@ -341,16 +437,64 @@ export default function HomePage() {
         selectedStoreId={selected.storeId}
         onPick={handlePickStore}
       />
+      <DeliverToPicker open={emptyPickerOpen} onOpenChange={setEmptyPickerOpen} />
+
+      {/* Store-switch confirm. Replaces native window.confirm. Opens when
+          the customer picks a store different from the one their current
+          cart is scoped to — confirm wipes the cart + selects the new
+          store; cancel leaves both untouched. */}
+      <AlertDialog
+        open={pendingSwitch !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingSwitch(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Switch to {pendingSwitch?.name ?? "this store"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Your cart has{" "}
+              <span className="font-semibold text-foreground">
+                {cart.totalItems()} item{cart.totalItems() === 1 ? "" : "s"}
+              </span>{" "}
+              from another store. Switching will clear your cart so you can
+              shop fresh from{" "}
+              <span className="font-semibold text-foreground">
+                {pendingSwitch?.name ?? "this store"}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingSwitch(null)}>
+              Keep my cart
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPendingSwitch}>
+              Switch & clear cart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
 
+/**
+ * Section-shaped first-paint skeleton for the customer home — mirrors the
+ * real layout (hero → category grid → product rail → coupon → other
+ * stores) so the page settles in place instead of popping. Shown only
+ * while the first nearby fetch is in flight; once the primary store id is
+ * known the real sections take over and each rail handles its own
+ * lower-level loading state.
+ */
 function HomeSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Hero card */}
       <div className="rounded-[var(--radius-lg)] border border-border bg-card p-3 flex gap-3">
-        <Skeleton className="size-20 sm:size-24 rounded-[var(--radius-md)]" />
+        <Skeleton className="size-16 sm:size-20 rounded-[var(--radius-md)]" />
         <div className="flex-1 space-y-2">
           <Skeleton className="h-5 w-2/3" />
           <Skeleton className="h-3 w-1/2" />
@@ -373,7 +517,7 @@ function HomeSkeleton() {
           ))}
         </div>
       </div>
-      {/* Product rail skeleton (3-card horizontal scroll) */}
+      {/* Product rail skeleton (horizontal scroll) */}
       <div className="space-y-3">
         <Skeleton className="h-5 w-1/2" />
         <div className="flex gap-2 overflow-hidden">

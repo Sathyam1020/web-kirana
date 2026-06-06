@@ -34,6 +34,8 @@ export type {
   PublicCouponsResult,
   ProductOwnerView,
   ProductPublicView,
+  ProductPublicVariantView,
+  ProductVariantView,
   SearchHit,
   SearchResult,
   SessionResult,

@@ -295,6 +295,23 @@ model Store {
   deliveryRadiusMeters Int @default(3000)
   minOrderPaise        Int @default(0)
 
+  // IP-1 — fee + free-above-threshold model. Both default 0 so an existing
+  // store that doesn't touch settings keeps charging no fee. `compute…` at
+  // placement (orders.service) snapshots the result onto Order.
+  baseDeliveryFeePaise       Int @default(0)
+  freeDeliveryThresholdPaise Int @default(0)
+
+  // IP-1 — operating hours, IST wall-clock strings ("HH:MM"). Defaults
+  // mirror typical kirana hours so the auto-open/close cron behaves the
+  // same way for new + legacy rows. Crossing midnight is allowed (open
+  // 21:00, close 01:00) — the cron handles it.
+  openTime  String @default("07:00")
+  closeTime String @default("22:00")
+
+  // IP-1 — emergency override. When true, store reads as closed regardless
+  // of hours; the cron skips flipping `isOpen` for these rows.
+  manualClosed Boolean @default(false)
+
   addressLine String
   city        String
   pincode     String
@@ -399,6 +416,11 @@ model Product {
   updatedAt DateTime @updatedAt
 
   orderItems OrderItem[]
+  // IP-2 — every Product owns ≥1 ProductVariant. The default variant
+  // (isDefault=true) backs the deprecated Product.pricePaise/unit while
+  // they exist; once IP-2.5 drops those columns, customers + cart always
+  // operate on variants directly.
+  variants   ProductVariant[]
 
   @@index([storeId, isActive])
   @@index([subcategoryId, isActive])
@@ -409,6 +431,58 @@ model Product {
   @@index([isPromoted, promotedUntil])
   // Phase 6.8 — "deals" filter / expiry sweep
   @@index([discountValidUntil])
+}
+
+// IP-2 — sized SKU under a product. Customer adds a specific variant to
+// cart; the product is the merchandising / category / discount unit but
+// the variant is what's priced + counted in stock.
+//
+// Invariants enforced by the service layer:
+//   - Every Product has ≥1 ProductVariant.
+//   - Exactly one variant per product has isDefault=true.
+//   - sku (when set) is unique per store.
+//   - Variants with historical OrderItems can't be deleted (SetNull FK
+//     protects history, but the service blocks DELETE for sanity).
+//
+// Pricing: variant.pricePaise is the list price. The product-level
+// discount (Product.discountType / discountValue) applies to every
+// variant. effectivePricePaise(variant, product) lives in lib/pricing.
+//
+// Images: optional per-variant; the customer view resolves with
+// `variant.imageUrl ?? product.imageUrl` so a lazy-owner workflow keeps
+// today's "one image per product" behaviour while a detail-oriented
+// owner can upload size-specific imagery.
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  name        String                                       // e.g. "500 ml", "1 kg", "Pack of 6", "Family pack"
+  unitValue   Decimal @db.Decimal(10, 2)                   // numeric quantity (e.g. 500, 1.5)
+  unit        Unit                                         // existing Unit enum; per-variant so a product can mix loose KG + packed PIECE
+  pricePaise  Int                                          // list price; Product.discountType/Value applies
+  isAvailable Boolean @default(true)
+  isDefault   Boolean @default(false)
+  sku         String?
+  sortOrder   Int     @default(0)
+
+  // Per-variant image with product-image fallback at read time.
+  // Snapshot path (OrderItem.productImageUrlSnapshot) records the
+  // resolved value — variant's if present, else product's.
+  imageUrl       String?
+  imagePublicId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  @@unique([productId, name])
+  @@index([productId, isAvailable])
+  // Per-store SKU uniqueness lives in the service layer (Postgres
+  // doesn't support cross-table subqueries in partial-unique indexes).
+  // Regular index here for owner-facing SKU lookup speed.
+  @@index([sku])
 }
 
 // --- Addresses ----------------------------------------------------------
@@ -503,11 +577,24 @@ model OrderItem {
   productId String?
   product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  // IP-2 — the variant the customer actually bought. SetNull mirrors the
+  // product FK so historical rows survive a variant delete. New orders
+  // always populate this; pre-IP-2 rows carry null + are still valid
+  // because the snapshots below cover everything the reader needs.
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
   // Snapshot — never re-read from Product after placement.
   productNameSnapshot     String
-  productImageUrlSnapshot String?
-  unitPricePaiseSnapshot  Int
-  unitSnapshot            Unit
+  productImageUrlSnapshot String?                          // IP-2: stores the RESOLVED image (variant's if present, else product's)
+  unitPricePaiseSnapshot  Int                              // already the per-variant effective price (variant.pricePaise minus discount)
+  unitSnapshot            Unit                             // copied from variant.unit on IP-2 placements
+
+  // IP-2 — variant identity captured at placement so the order screen +
+  // historical receipts can render "Aashirvaad Atta · 500 g" even after
+  // the variant is renamed or removed.
+  variantNameSnapshot      String?
+  variantUnitValueSnapshot Decimal? @db.Decimal(10, 2)
 
   quantity       Int
   lineTotalPaise Int

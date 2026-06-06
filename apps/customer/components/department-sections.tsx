@@ -12,41 +12,24 @@
 
 import type { StoreDetailDepartmentView } from "@workspace/api-client"
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import Link from "next/link"
 
 import { CategoryTile } from "@/components/category-tile"
 import { EmptyCategoryIllustration } from "@/components/illustrations"
 
 interface DepartmentSectionsProps {
   storeId: string
-  storeName: string
   departments: StoreDetailDepartmentView[] | undefined
   isLoading: boolean
 }
 
 export function DepartmentSections({
   storeId,
-  storeName,
   departments,
   isLoading,
 }: DepartmentSectionsProps) {
-  const hasContent = !isLoading && (departments?.length ?? 0) > 0
-
   return (
-    <section aria-label={`Shop by category at ${storeName}`} className="space-y-4">
-      <div className="flex items-end justify-between">
-        <h3 className="text-base font-semibold">
-          Shop by category at <span className="text-primary">{storeName}</span>
-        </h3>
-        {hasContent ? (
-          <Link
-            href={`/stores/${storeId}`}
-            className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            See all
-          </Link>
-        ) : null}
-      </div>
+    <section aria-label="Shop by category" className="space-y-3">
+      <h3 className="text-[15px] font-semibold">Shop by category</h3>
 
       {isLoading ? (
         <DepartmentSkeleton />
@@ -54,7 +37,7 @@ export function DepartmentSections({
         <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
           <EmptyCategoryIllustration className="w-32" />
           <p className="text-sm text-muted-foreground">
-            {storeName} hasn&rsquo;t added any categories yet.
+            No categories here yet.
           </p>
         </div>
       ) : (
