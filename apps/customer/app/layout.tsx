@@ -7,6 +7,7 @@ import { BackToTop } from "@/components/back-to-top"
 import { BottomNav } from "@/components/bottom-nav"
 import { CustomerBottomBar } from "@/components/customer-bottom-bar"
 import { OfflineBanner } from "@/components/offline-banner"
+import { OnboardingSheet } from "@/components/onboarding-sheet"
 import { Providers } from "@/components/providers"
 import { RouteTransition } from "@/components/route-transition"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
@@ -66,6 +67,10 @@ export default async function RootLayout({
           <BackToTop />
           <CustomerBottomBar />
           <BottomNav />
+          {/* IP-6 — one-time post-signup permissions prompt. Hook gates
+              by authStatus + a localStorage flag so this only fires
+              once per device, for authed customers. */}
+          <OnboardingSheet />
         </Providers>
         <ServiceWorkerRegister />
       </body>
