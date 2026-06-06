@@ -74,11 +74,26 @@ export function ProductRail({
         <RailHeader title={title} subtitle={subtitle} />
       ) : null}
 
+      {/* Scroll container stays WITHIN the column gutter (no `-mx-4`)
+          so rails respect the same right boundary as the category grid
+          and other contained sections. Cards still scroll horizontally,
+          but the clipping happens at the column edge — never past it.
+          The mask-image fade softens the last 28px so overflowing cards
+          terminate gracefully + signal "scroll right for more." */}
       <div
-        className="-mx-4 px-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        style={{ scrollSnapType: "x mandatory" }}
+        className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{
+          scrollSnapType: "x mandatory",
+          maskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+        }}
       >
-        <div className="flex gap-2">
+        {/* Extra right padding inside the scroll track gives the last
+            card room to fully reveal when scrolled to end (fade only
+            covers the last 28px). */}
+        <div className="flex gap-2 pr-6">
           {isLoading
             ? Array.from({ length: skeletonCount }).map((_, i) => (
                 <ProductSkeleton key={`skel-${i}`} />

@@ -4,7 +4,7 @@ import type { OrderStatus } from "@workspace/api-client"
 import { useApi, useAuthStore } from "@workspace/auth"
 import { useQuery } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronRight, ChevronUp, Package, ShoppingCart, X } from "lucide-react"
+import { ChevronRight, ChevronUp, ShoppingCart, X } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
@@ -33,7 +33,11 @@ const SLIDE = {
   exit: { y: 60, opacity: 0 },
 } as const
 
-const PILL_WIDTH = "w-[min(24rem,calc(100vw-2rem))]"
+// Wider than the cart pill (which is content-sized) because the
+// expanded multi-order list inside it benefits from a stable width.
+// Only the EXPANDED list uses this — the resting one-line / many-line
+// tracker pills self-size like the cart pill below for visual parity.
+const EXPANDED_WIDTH = "w-[min(24rem,calc(100vw-2rem))]"
 
 /**
  * The single owner of the customer's bottom-center bar. Stacks (top → bottom):
@@ -88,7 +92,7 @@ export function CustomerBottomBar() {
         {expanded && active.length > 1 && (
           <motion.div
             {...SLIDE} transition={slideT}
-            className={`pointer-events-auto ${PILL_WIDTH} rounded-[var(--radius-lg)] border border-border bg-card shadow-lg overflow-hidden`}
+            className={`pointer-events-auto ${EXPANDED_WIDTH} rounded-[var(--radius-lg)] border border-border bg-card shadow-card overflow-hidden`}
           >
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
               <span className="text-sm font-semibold">Active orders</span>
@@ -125,46 +129,35 @@ export function CustomerBottomBar() {
         )}
       </AnimatePresence>
 
-      {/* Active-order tracker pill (card style — distinct from the primary cart CTA) */}
+      {/* Active-order tracker pill — matches cart-pill chrome (h-12, self-
+          sizing, shadow-card) and CTA shape (primary "Track →" button on
+          the right, mirroring "View →"). The ping-dot alone is enough as
+          the status indicator, no Package icon needed. Status + store
+          appear inline; price lives on the order detail page where the
+          customer is heading anyway. */}
       <AnimatePresence>
         {active.length === 1 && (
-          <motion.div key="one" {...SLIDE} transition={slideT} className={`pointer-events-auto ${PILL_WIDTH}`}>
-            <Link
-              href={`/orders/${active[0]!.id}`}
-              className="flex items-center gap-3 h-14 px-4 rounded-full bg-card border border-border shadow-lg hover:border-primary/40 transition-colors"
-            >
-              <span className="relative flex size-2.5 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
-                <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
-              </span>
-              <Package className="size-5 shrink-0 text-primary" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold leading-tight">
-                  {SHORT_LABEL[active[0]!.status]}
-                </span>
-                <span className="block text-xs text-muted-foreground truncate">
-                  {active[0]!.store.nameSnapshot} ·{" "}
-                  {formatPriceFromPaise(active[0]!.totalPaise)}
-                </span>
-              </span>
-              <span className="text-xs font-medium text-primary shrink-0">Track</span>
-            </Link>
+          <motion.div
+            key="one"
+            {...SLIDE}
+            transition={slideT}
+            className="pointer-events-auto"
+          >
+            <TrackerSinglePill order={active[0]!} />
           </motion.div>
         )}
         {active.length > 1 && (
-          <motion.div key="many" {...SLIDE} transition={slideT} className={`pointer-events-auto ${PILL_WIDTH}`}>
-            <button
-              onClick={() => setExpanded((e) => !e)}
-              className="flex w-full items-center gap-3 h-14 px-4 rounded-full bg-card border border-border shadow-lg hover:border-primary/40 transition-colors"
-            >
-              <Package className="size-5 shrink-0 text-primary" />
-              <span className="flex-1 text-left text-sm font-semibold">
-                {active.length} active orders
-              </span>
-              <ChevronUp
-                className={`size-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-              />
-            </button>
+          <motion.div
+            key="many"
+            {...SLIDE}
+            transition={slideT}
+            className="pointer-events-auto"
+          >
+            <TrackerMultiPill
+              count={active.length}
+              expanded={expanded}
+              onToggle={() => setExpanded((e) => !e)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -191,6 +184,125 @@ export function CustomerBottomBar() {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+/**
+ * Single-active-order tracker pill. Mirrors the cart pill's chrome
+ * (h-12, items-stretch, rounded-full, shadow-card) so the two pills
+ * read as a coherent stack rather than two unrelated shapes.
+ *
+ * Tap target: the whole pill is a single `<Link>` to the order page —
+ * there's no secondary action to gate, so we don't need the cart pill's
+ * split tap targets here.
+ */
+function TrackerSinglePill({
+  order,
+}: {
+  order: { id: string; status: OrderStatus; store: { nameSnapshot: string } }
+}) {
+  return (
+    <Link
+      href={`/orders/${order.id}`}
+      className={cn(
+        "inline-flex items-stretch h-12",
+        "rounded-full bg-card text-foreground border border-border shadow-card",
+        "overflow-hidden",
+        "transition-colors hover:border-primary/50",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "max-w-[min(24rem,calc(100vw-2rem))]",
+      )}
+    >
+      {/* Status block — pulsing dot + inline "status · store" copy. */}
+      <span className="flex items-center gap-2.5 pl-4 pr-2 select-none min-w-0">
+        <span className="relative flex size-2.5 shrink-0" aria-hidden>
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
+          <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+        </span>
+        <span className="flex items-baseline gap-1.5 text-sm whitespace-nowrap min-w-0">
+          <span className="font-semibold shrink-0">
+            {SHORT_LABEL[order.status]}
+          </span>
+          <span className="text-muted-foreground" aria-hidden>
+            ·
+          </span>
+          <span className="text-muted-foreground font-normal truncate">
+            {order.store.nameSnapshot}
+          </span>
+        </span>
+      </span>
+
+      {/* Track CTA — visual twin of the cart pill's View button so the
+          two pills feel like a system, not coincidental siblings. */}
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5 px-3.5 my-1.5 mr-1.5",
+          "rounded-full bg-primary text-primary-foreground font-semibold text-sm",
+          "shrink-0",
+        )}
+      >
+        Track
+        <ChevronRight className="size-4" strokeWidth={2.5} aria-hidden />
+      </span>
+    </Link>
+  )
+}
+
+/**
+ * Multi-active-order tracker — same chrome as the single pill, but the
+ * CTA is a chevron that expands the list above. Toggles `expanded`
+ * state owned by the parent so the expanded list and pill stay in sync.
+ */
+function TrackerMultiPill({
+  count,
+  expanded,
+  onToggle,
+}: {
+  count: number
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className={cn(
+        "inline-flex items-stretch h-12",
+        "rounded-full bg-card text-foreground border border-border shadow-card",
+        "overflow-hidden",
+        "transition-colors hover:border-primary/50",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+    >
+      <span className="flex items-center gap-2.5 pl-4 pr-2 select-none">
+        <span className="relative flex size-2.5 shrink-0" aria-hidden>
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
+          <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+        </span>
+        <span className="text-sm font-semibold whitespace-nowrap">
+          {count} active orders
+        </span>
+      </span>
+
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5 px-3.5 my-1.5 mr-1.5",
+          "rounded-full bg-primary text-primary-foreground font-semibold text-sm",
+          "shrink-0",
+        )}
+      >
+        {expanded ? "Hide" : "View"}
+        <ChevronUp
+          className={cn(
+            "size-4 transition-transform",
+            expanded ? "" : "rotate-180",
+          )}
+          strokeWidth={2.5}
+          aria-hidden
+        />
+      </span>
+    </button>
   )
 }
 

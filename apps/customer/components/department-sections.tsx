@@ -28,7 +28,7 @@ export function DepartmentSections({
   isLoading,
 }: DepartmentSectionsProps) {
   return (
-    <section aria-label="Shop by category" className="space-y-4">
+    <section aria-label="Shop by category" className="space-y-3">
       <h3 className="text-[15px] font-semibold">Shop by category</h3>
 
       {isLoading ? (

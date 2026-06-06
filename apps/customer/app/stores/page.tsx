@@ -22,8 +22,19 @@
 import type {
   OrderItemView,
   ProductPublicView,
+  StoreNearbyHit,
 } from "@workspace/api-client"
 import { useApi, useAuthStore } from "@workspace/auth"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
 import { ErrorState } from "@workspace/ui/components/error-state"
 import { Skeleton } from "@workspace/ui/components/skeleton"
@@ -34,6 +45,7 @@ import { useEffect, useState } from "react"
 import { BuyAgainRail } from "@/components/buy-again-rail"
 import { ChooseStoreSheet } from "@/components/choose-store-sheet"
 import { CouponCarousel } from "@/components/coupon-carousel"
+import { DeliverToPicker } from "@/components/deliver-to-picker"
 import { DepartmentSections } from "@/components/department-sections"
 import { ExpiringOfferRibbon } from "@/components/expiring-offer-ribbon"
 import { HomeHeader } from "@/components/home-header"
@@ -110,6 +122,17 @@ export default function HomePage() {
   const selected = useSelectedStore()
   const cart = useCart()
   const [chooseStoreOpen, setChooseStoreOpen] = useState(false)
+  // IP-4 — separate picker instance for the "no stores in this region"
+  // empty state. Lets the customer recover without scrolling back up to
+  // tap the header pill.
+  const [emptyPickerOpen, setEmptyPickerOpen] = useState(false)
+  // Holds the store the customer wants to switch to, when the current
+  // cart has items from a different store. Drives the confirm dialog —
+  // replaces the old `window.confirm()` which was ugly + accessibility-
+  // hostile + un-themeable.
+  const [pendingSwitch, setPendingSwitch] = useState<StoreNearbyHit | null>(
+    null,
+  )
   const fadeIn = useMotionPreset(tweens.fast)
 
   // --- Nearby query (every store within delivery reach) -------------------
@@ -128,10 +151,25 @@ export default function HomePage() {
   })
 
   // Auto-derive primary store on first load; prefer nearest open.
+  // IP-4 safety net: if the persisted pick isn't in the current nearby
+  // response (e.g. customer reloaded with picker pointing at a different
+  // city than the one they last shopped in), force-re-derive instead of
+  // letting `userPicked = true` strand them on a stale id → white screen.
   useEffect(() => {
     if (!nearbyQuery.data) return
     const items = nearbyQuery.data.items
-    if (items.length === 0) return
+    if (items.length === 0) {
+      if (selected.storeId !== null) selected.reset()
+      return
+    }
+    const stalePick =
+      selected.storeId !== null &&
+      !items.some((s) => s.id === selected.storeId)
+    if (stalePick) {
+      const preferOpen = items.find((s) => s.isOpen) ?? items[0]
+      if (preferOpen) selected.select(preferOpen.id)
+      return
+    }
     const preferOpen = items.find((s) => s.isOpen) ?? items[0]
     if (preferOpen) selected.hydrateIfEmpty(preferOpen.id)
   }, [nearbyQuery.data, selected])
@@ -194,6 +232,14 @@ export default function HomePage() {
   })
 
   // --- Switch-store flow ---------------------------------------------------
+  function commitStoreSwitch(storeId: string): void {
+    selected.select(storeId)
+    setChooseStoreOpen(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+
   function handlePickStore(storeId: string) {
     if (storeId === selected.storeId) {
       setChooseStoreOpen(false)
@@ -202,17 +248,25 @@ export default function HomePage() {
     const cartHasOtherStore =
       cart.storeId !== null && cart.storeId !== storeId && cart.totalItems() > 0
     if (cartHasOtherStore) {
-      const ok = window.confirm(
-        "Your cart has items from a different store. Switching will clear your cart. Continue?",
-      )
-      if (!ok) return
-      cart.clear()
+      const targetStore = allStores.find((s) => s.id === storeId)
+      if (targetStore !== undefined) {
+        setPendingSwitch(targetStore)
+        // Close the choose-store sheet so the AlertDialog gets focus
+        // without nested-modal stacking; we'll route back to the home
+        // post-confirm.
+        setChooseStoreOpen(false)
+        return
+      }
     }
-    selected.select(storeId)
-    setChooseStoreOpen(false)
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" })
-    }
+    commitStoreSwitch(storeId)
+  }
+
+  function confirmPendingSwitch(): void {
+    if (pendingSwitch === null) return
+    cart.clear()
+    const storeId = pendingSwitch.id
+    setPendingSwitch(null)
+    commitStoreSwitch(storeId)
   }
 
   // --- Render buckets -----------------------------------------------------
@@ -242,7 +296,7 @@ export default function HomePage() {
           phone-shaped column rather than stretching content edge-to-edge.
           max-w-md ≈ 448px keeps the feel of the design intact at every
           viewport. */}
-      <main className="max-w-md mx-auto px-4 py-5 space-y-4">
+      <main className="max-w-md mx-auto px-4 py-5 space-y-6">
         {/* No location → ask for it. Only when context is empty AND GPS
             hasn't resolved AND we're not mid-request. */}
         {effectiveCoords === null && locStatus !== "requesting" ? (
@@ -270,16 +324,29 @@ export default function HomePage() {
           />
         ) : null}
 
-        {/* No stores in zone */}
+        {/* No stores in zone. IP-4 — address-aware copy + change-address
+            CTA so the customer recovers from a picked address that
+            doesn't have coverage yet. */}
         {nearbyQuery.data && allStores.length === 0 ? (
           <div className="rounded-[var(--radius-md)] border border-border bg-card py-8 px-4 flex flex-col items-center gap-3 text-center">
             <NoStoresIllustration className="w-44" />
             <h2 className="text-base font-semibold">
-              No kirana stores in your area yet
+              {ctx.label !== null && !ctx.isGPS
+                ? `No kirana stores deliver to ${ctx.label} yet`
+                : "No kirana stores in your area yet"}
             </h2>
             <p className="text-sm text-muted-foreground max-w-xs">
-              We&rsquo;re expanding to more neighbourhoods soon. Check back later.
+              {ctx.label !== null && !ctx.isGPS
+                ? "Try a different saved address, or switch back to your current location."
+                : "We’re expanding to more neighbourhoods soon. Check back later."}
             </p>
+            <Button
+              variant="secondary"
+              onClick={() => setEmptyPickerOpen(true)}
+              className="mt-1"
+            >
+              Change delivery address
+            </Button>
           </div>
         ) : null}
 
@@ -292,7 +359,7 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={fadeIn}
-            className="space-y-4"
+            className="space-y-6"
           >
             {/* Above-the-fold urgency: soonest-expiring coupon (≤48h).
                 Silent when nothing is expiring soon. */}
@@ -370,6 +437,46 @@ export default function HomePage() {
         selectedStoreId={selected.storeId}
         onPick={handlePickStore}
       />
+      <DeliverToPicker open={emptyPickerOpen} onOpenChange={setEmptyPickerOpen} />
+
+      {/* Store-switch confirm. Replaces native window.confirm. Opens when
+          the customer picks a store different from the one their current
+          cart is scoped to — confirm wipes the cart + selects the new
+          store; cancel leaves both untouched. */}
+      <AlertDialog
+        open={pendingSwitch !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingSwitch(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Switch to {pendingSwitch?.name ?? "this store"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Your cart has{" "}
+              <span className="font-semibold text-foreground">
+                {cart.totalItems()} item{cart.totalItems() === 1 ? "" : "s"}
+              </span>{" "}
+              from another store. Switching will clear your cart so you can
+              shop fresh from{" "}
+              <span className="font-semibold text-foreground">
+                {pendingSwitch?.name ?? "this store"}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingSwitch(null)}>
+              Keep my cart
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmPendingSwitch}>
+              Switch & clear cart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

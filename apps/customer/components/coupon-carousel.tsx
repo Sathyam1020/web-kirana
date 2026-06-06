@@ -4,29 +4,32 @@
  * Live coupon carousel on the customer home — combined admin (GLOBAL) +
  * owner (STORE) coupons for the currently-selected primary store.
  *
- * Data: GET /v1/coupons/active?storeId=primary returns the combined list,
- * already sorted GLOBAL first then by expiring-soonest.
+ * Visual model: each coupon is a compact horizontal card — bold offer
+ * headline + "Use code: XYZ" subline on the left, a delivery-rider
+ * illustration on the right. Whole card is tappable → copies the code
+ * to clipboard. No separate Copy button — keeps the card light and the
+ * primary action obvious.
  *
- * Per-card interaction: tap or "Copy" → clipboard copy + toast feedback.
- * No carousel auto-advance — coupons are useful information, not decoration;
- * autoplay risks the user missing one. Customers swipe at their own pace.
+ * Multi-coupon rail: snap-scroll with pagination dots underneath
+ * tracking the currently-visible card. Single coupon renders inline.
  *
- * Empty state: when there are no active offers, falls back to a generic
- * "First order ₹50 off" promo card (visual filler so the section never
- * collapses, but flagged as a fallback so it can't be mistaken for a real
- * coupon).
+ * Data: GET /v1/coupons/active?storeId=primary returns the combined
+ * list, already sorted GLOBAL first then by expiring-soonest.
  */
 
 import type { PublicCoupon } from "@workspace/api-client"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { toast } from "@workspace/ui/components/toaster"
-import { Copy, ScrollText, Sparkles, Tag } from "lucide-react"
+import { Sparkles } from "lucide-react"
 import { motion } from "motion/react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
-import { NoCouponsIllustration } from "@/components/illustrations"
+import {
+  DeliveryRiderIllustration,
+  NoCouponsIllustration,
+} from "@/components/illustrations"
 import { cn } from "@workspace/ui/lib/utils"
-import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
+import { springs, useMotionPreset } from "@workspace/ui/lib/motion"
 import { formatPriceFromPaise } from "@/lib/format"
 
 interface CouponCarouselProps {
@@ -44,16 +47,16 @@ export function CouponCarousel({
 }: CouponCarouselProps) {
   if (isLoading) {
     return (
-      <section className={cn("space-y-2", className)}>
+      <section className={cn("space-y-3", className)}>
         <Header />
-        <Skeleton className="h-28 w-full rounded-[var(--radius-md)]" />
+        <Skeleton className="h-24 w-full rounded-[var(--radius-md)]" />
       </section>
     )
   }
 
   if (!coupons || coupons.length === 0) {
     return (
-      <section className={cn("space-y-2", className)}>
+      <section className={cn("space-y-3", className)}>
         <Header />
         <div className="flex items-center gap-4 rounded-[var(--radius-md)] border border-border bg-card px-4 py-6">
           <NoCouponsIllustration className="w-20 shrink-0" />
@@ -71,18 +74,104 @@ export function CouponCarousel({
   return (
     <section
       aria-label="Offers and coupons"
-      className={cn("space-y-2", className)}
+      className={cn("space-y-3", className)}
     >
       <Header />
+      {coupons.length === 1 ? (
+        <CouponCard coupon={coupons[0]!} storeName={storeName} />
+      ) : (
+        <CouponRail coupons={coupons} storeName={storeName} />
+      )}
+    </section>
+  )
+}
+
+function Header() {
+  return (
+    <h3 className="flex items-center gap-1.5 text-[15px] font-semibold">
+      <Sparkles className="size-4 text-discount" aria-hidden />
+      Offers for you
+    </h3>
+  )
+}
+
+/**
+ * Multi-coupon horizontal rail with snap-scroll + active-slide pagination
+ * dots underneath. The dots are derived from an IntersectionObserver on
+ * the card refs (threshold 0.6 — the card is "active" when most of it
+ * is in view). Tapping a dot scrolls that card into view.
+ */
+function CouponRail({
+  coupons,
+  storeName,
+}: {
+  coupons: PublicCoupon[]
+  storeName: string | undefined
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const cardRefs = useRef<Array<HTMLDivElement | null>>([])
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  useEffect(() => {
+    const root = scrollRef.current
+    if (root === null) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pick the entry with the largest intersection ratio above the
+        // visibility threshold — handles the moment where two cards
+        // overlap during scroll.
+        let bestIndex = activeIndex
+        let bestRatio = 0
+        for (const entry of entries) {
+          if (entry.intersectionRatio > bestRatio) {
+            bestRatio = entry.intersectionRatio
+            const idx = Number(
+              (entry.target as HTMLElement).dataset.couponIndex,
+            )
+            if (!Number.isNaN(idx)) bestIndex = idx
+          }
+        }
+        if (bestRatio > 0.6) setActiveIndex(bestIndex)
+      },
+      { root, threshold: [0.4, 0.6, 0.8, 1] },
+    )
+    cardRefs.current.forEach((el) => {
+      if (el !== null) observer.observe(el)
+    })
+    return () => observer.disconnect()
+    // We want this to run once per coupon list — re-observe if the
+    // list identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coupons.length])
+
+  function scrollToIndex(i: number): void {
+    const card = cardRefs.current[i]
+    if (card === null || card === undefined) return
+    card.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" })
+  }
+
+  return (
+    <div className="space-y-2.5">
       <div
-        className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        style={{ scrollSnapType: "x mandatory" }}
+        ref={scrollRef}
+        className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{
+          scrollSnapType: "x mandatory",
+          maskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+        }}
       >
-        <div className="flex gap-3">
-          {coupons.map((c) => (
+        <div className="flex gap-3 pr-6">
+          {coupons.map((c, i) => (
             <div
               key={c.id}
-              className="w-full shrink-0"
+              ref={(el) => {
+                cardRefs.current[i] = el
+              }}
+              data-coupon-index={i}
+              className="w-[min(20rem,100%)] shrink-0"
               style={{ scrollSnapAlign: "start" }}
             >
               <CouponCard coupon={c} storeName={storeName} />
@@ -90,18 +179,31 @@ export function CouponCarousel({
           ))}
         </div>
       </div>
-    </section>
-  )
-}
 
-function Header() {
-  return (
-    <h3 className="flex items-center gap-1.5 text-base font-semibold">
-      {/* DP-9: offers section header lives in the savings role (rose),
-          not the action role (green). */}
-      <Sparkles className="size-4 text-discount" aria-hidden />
-      Offers for you
-    </h3>
+      {/* Pagination dots */}
+      <div
+        role="tablist"
+        aria-label="Coupon pages"
+        className="flex items-center justify-center gap-1.5 pt-0.5"
+      >
+        {coupons.map((c, i) => (
+          <button
+            key={c.id}
+            type="button"
+            role="tab"
+            aria-selected={i === activeIndex}
+            aria-label={`Show coupon ${i + 1} of ${coupons.length}`}
+            onClick={() => scrollToIndex(i)}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-200",
+              i === activeIndex
+                ? "w-5 bg-primary"
+                : "w-1.5 bg-border-strong hover:bg-muted-foreground/50",
+            )}
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -115,12 +217,8 @@ function CouponCard({
   const tap = useMotionPreset(springs.tap)
   const [copied, setCopied] = useState(false)
 
-  const isGlobal = coupon.scope === "GLOBAL"
-  const Icon = isGlobal ? ScrollText : Tag
-
   const headline = formatHeadline(coupon)
   const subline = formatSubline(coupon, storeName)
-  const expiry = formatExpiry(coupon.validUntil)
 
   async function handleCopy() {
     try {
@@ -136,80 +234,54 @@ function CouponCard({
   }
 
   return (
-    <motion.div
-      whileTap={{ scale: 0.995 }}
+    <motion.button
+      type="button"
+      onClick={handleCopy}
+      whileTap={{ scale: 0.99 }}
       transition={tap}
+      aria-label={`Copy coupon code ${coupon.code}`}
       className={cn(
-        // DP-9: coupon cards are SAVINGS surfaces → discount role (rose),
-        // not the action role. Card reads as "deal" instantly without
-        // competing with the ADD chips in the rail above.
-        "overflow-hidden rounded-[var(--radius-md)] border border-discount/15",
-        "bg-gradient-to-br from-discount/12 via-discount/6 to-discount/3",
-        // Lock to a uniform card height so the rail doesn't lurch when one
-        // coupon has a longer subline than another. h-36 fits 2-line subline
-        // + expiry + code row comfortably; cards with less content just
-        // breathe more.
-        "h-36",
+        "flex w-full items-center gap-3 text-left",
+        "rounded-[var(--radius-lg)] border border-border-soft bg-card",
+        "px-4 py-3.5",
+        "transition-colors hover:border-primary/40",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
-      <div className="flex h-full">
-        {/* Left badge column — icon stacked over scope label, dashed cut.
-            Slightly stronger tint than the body for the "ticket stub" feel. */}
-        <div className="flex w-16 shrink-0 flex-col items-center justify-center gap-1.5 border-r border-dashed border-discount/30 bg-discount/5 py-5">
-          <Icon
-            className="size-6 text-discount"
-            aria-hidden
-          />
-          <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-            {isGlobal ? "Kirana" : "Store"}
+      {/* Left — copy block */}
+      <span className="flex-1 min-w-0">
+        <span className="block text-[15px] font-semibold text-foreground leading-snug">
+          {headline}{" "}
+          <span aria-hidden className="inline-block">
+            🎉
           </span>
-        </div>
-
-        {/* Body — flex-1 lets it fill the locked h-36, justify-between
-            keeps headline+meta block at top and code+copy row at bottom. */}
-        <div className="flex min-w-0 flex-1 flex-col justify-between px-4 py-3.5">
-          <div>
-            <p className="text-xl leading-tight font-bold text-foreground tabular-nums">
-              {headline}
-            </p>
-            <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-              {subline}
-            </p>
-            {expiry ? (
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {expiry}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2 pt-2">
-            <span className="inline-flex items-center rounded-[var(--radius-sm)] bg-foreground/10 px-2.5 py-1 text-[12px] font-semibold text-foreground tabular-nums">
-              {coupon.code}
+        </span>
+        <span className="block mt-0.5 text-[12px] text-muted-foreground leading-snug">
+          {copied ? (
+            <span className="text-success font-medium">
+              Copied — paste at checkout
             </span>
-            <motion.button
-              type="button"
-              onClick={handleCopy}
-              whileTap={{ scale: tapScale }}
-              transition={tap}
-              aria-label={`Copy coupon code ${coupon.code}`}
-              className={cn(
-                "ml-auto inline-flex h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold",
-                "border transition-colors",
-                // DP-9: the Copy button lives inside a discount card, so
-                // the resting outline rides the discount role. Copied
-                // state stays success so the "you got it" beat reads as
-                // confirmation, not another savings cue.
-                copied
-                  ? "border-success bg-success-soft text-success"
-                  : "border-discount bg-card text-discount hover:bg-discount/5"
-              )}
-            >
-              <Copy className="size-3.5" aria-hidden />
-              {copied ? "Copied" : "Copy"}
-            </motion.button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+          ) : (
+            <>
+              Use code:{" "}
+              <span className="font-semibold tabular-nums tracking-wider text-foreground">
+                {coupon.code}
+              </span>
+            </>
+          )}
+        </span>
+        {subline !== null ? (
+          <span className="block mt-1 text-[10.5px] text-muted-foreground/80 leading-snug">
+            {subline}
+          </span>
+        ) : null}
+      </span>
+
+      {/* Right — rider illustration */}
+      <span className="shrink-0">
+        <DeliveryRiderIllustration className="w-20 sm:w-24" />
+      </span>
+    </motion.button>
   )
 }
 
@@ -223,16 +295,23 @@ function formatHeadline(c: PublicCoupon): string {
   return `${formatPriceFromPaise(c.value)} off`
 }
 
-function formatSubline(c: PublicCoupon, storeName: string | undefined): string {
+/**
+ * Single-line meta below "Use code: ...". Joins min-order + scope +
+ * expiry-urgency. Kept tiny + muted so the headline stays the star.
+ * Returns null when there's nothing worth saying (no min-order, GLOBAL
+ * scope, far-off expiry).
+ */
+function formatSubline(c: PublicCoupon, storeName: string | undefined): string | null {
   const parts: string[] = []
   if (c.minOrderPaise > 0) {
     parts.push(`Min order ${formatPriceFromPaise(c.minOrderPaise)}`)
   }
-  if (c.scope === "STORE" && storeName) {
+  if (c.scope === "STORE" && storeName !== undefined) {
     parts.push(`Only at ${storeName}`)
-  } else if (c.scope === "GLOBAL") {
-    parts.push("Valid at every store")
   }
+  const expiry = formatExpiry(c.validUntil)
+  if (expiry !== null) parts.push(expiry)
+  if (parts.length === 0) return null
   return parts.join(" · ")
 }
 
@@ -245,6 +324,8 @@ function formatExpiry(iso: string | null): string | null {
   const days = Math.ceil(ms / (24 * 60 * 60 * 1000))
   if (days <= 0) return "Expires today"
   if (days === 1) return "Expires tomorrow"
+  // Only surface expiry urgency when it's actually near; far-off expiries
+  // are noise on a single-line subline.
   if (days <= 7) return `Expires in ${days} days`
-  return `Valid till ${dt.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+  return null
 }

@@ -46,6 +46,7 @@ import { toast } from "sonner"
 
 import { useDeliveryContext } from "@/lib/delivery-context"
 import { useResolvedLocation, useUserLocation, writeStoredLocation } from "@/lib/location"
+import { useSelectedStore } from "@/lib/selected-store"
 
 interface DeliverToPickerProps {
   open: boolean
@@ -57,6 +58,11 @@ export function DeliverToPicker({ open, onOpenChange }: DeliverToPickerProps) {
   const isAuthed = useIsAuthenticated()
   const queryClient = useQueryClient()
   const ctx = useDeliveryContext()
+  // IP-4 — switching the deliver-to address means the customer is shopping
+  // at a different region. Reset the persisted "primary store" pick so
+  // the home auto-derives a fresh primary from the new region's nearby
+  // list instead of trying to surface a stale Bengaluru store in Mumbai.
+  const resetSelectedStore = useSelectedStore((s) => s.reset)
   const { location, status: locStatus, request: requestLocation } = useUserLocation()
   const { label: resolvedLabel, loading: resolvingLabel } =
     useResolvedLocation(location)
@@ -86,6 +92,7 @@ export function DeliverToPicker({ open, onOpenChange }: DeliverToPickerProps) {
 
   function pickAddress(addr: Address): void {
     ctx.selectAddress(addr)
+    resetSelectedStore()
     invalidateNearby()
     onOpenChange(false)
   }
@@ -109,6 +116,7 @@ export function DeliverToPicker({ open, onOpenChange }: DeliverToPickerProps) {
         lng: location.lng,
         label: resolvedLabel ?? location.label,
       })
+      resetSelectedStore()
       invalidateNearby()
       onOpenChange(false)
       return
@@ -132,6 +140,7 @@ export function DeliverToPicker({ open, onOpenChange }: DeliverToPickerProps) {
       { lat: location.lat, lng: location.lng },
       resolvedLabel ?? location.label ?? "Current location",
     )
+    resetSelectedStore()
     invalidateNearby()
     onOpenChange(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
