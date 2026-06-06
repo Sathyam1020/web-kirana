@@ -213,6 +213,16 @@ export default function OrderDetailPage() {
                       <p className="text-sm font-medium truncate">
                         {it.nameSnapshot}
                       </p>
+                      {/* IP-2 — variant identity. Pre-IP-2 orders carry
+                          variantName=null; IP-2+ orders snapshot the
+                          variant the customer actually bought. Hidden
+                          for "Default" auto-backfill names so receipts
+                          for single-variant products don't add noise. */}
+                      {it.variantName !== null && it.variantName !== "Default" ? (
+                        <p className="text-[11px] text-muted-foreground leading-tight truncate">
+                          {it.variantName}
+                        </p>
+                      ) : null}
                       <p className="text-xs text-muted-foreground tabular-nums">
                         {formatPriceFromPaise(it.unitPricePaiseSnapshot)} ×{" "}
                         {it.quantity}

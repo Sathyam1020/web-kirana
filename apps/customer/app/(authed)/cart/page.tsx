@@ -153,12 +153,12 @@ export default function CartPage() {
             <ul className="space-y-2">
               {items.map((item) => (
                 <li
-                  key={item.productId}
+                  key={item.variantId}
                   className="rounded-[var(--radius-md)] border border-border bg-card p-3 flex items-center gap-3"
                 >
                   <ProgressiveImage
                     src={item.imageUrl}
-                    alt={item.name}
+                    alt={item.productName}
                     aspect="aspect-square"
                     rounded="rounded-[var(--radius-md)]"
                     className="w-16 shrink-0"
@@ -166,8 +166,17 @@ export default function CartPage() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-tight line-clamp-2">
-                      {item.name}
+                      {item.productName}
                     </p>
+                    {/* IP-2 — show variant name (e.g. "500 g") so the
+                        customer sees which size they bought without
+                        having to expand the row. Hidden for the legacy
+                        "Default" auto-backfill name to avoid noise. */}
+                    {item.variantName !== "Default" ? (
+                      <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                        {item.variantName}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground tabular-nums mt-1">
                       {formatPriceFromPaise(item.pricePaise)} × {item.quantity}
                     </p>
@@ -180,10 +189,10 @@ export default function CartPage() {
                     >
                       <motion.button
                         type="button"
-                        onClick={() => cart.dec(item.productId)}
+                        onClick={() => cart.dec(item.variantId)}
                         whileTap={{ scale: tapScale }}
                         transition={tap}
-                        aria-label={`Remove one ${item.name}`}
+                        aria-label={`Remove one ${item.productName}`}
                         className="size-8 inline-flex items-center justify-center"
                       >
                         <Minus className="size-3.5" strokeWidth={2.5} />
@@ -193,10 +202,10 @@ export default function CartPage() {
                       </span>
                       <motion.button
                         type="button"
-                        onClick={() => cart.incById(item.productId)}
+                        onClick={() => cart.incVariant(item.variantId)}
                         whileTap={{ scale: tapScale }}
                         transition={tap}
-                        aria-label={`Add one more ${item.name}`}
+                        aria-label={`Add one more ${item.productName}`}
                         className="size-8 inline-flex items-center justify-center"
                       >
                         <Plus className="size-3.5" strokeWidth={2.5} />
@@ -208,10 +217,10 @@ export default function CartPage() {
                   </div>
                   <motion.button
                     type="button"
-                    onClick={() => cart.remove(item.productId)}
+                    onClick={() => cart.remove(item.variantId)}
                     whileTap={{ scale: tapScale }}
                     transition={tap}
-                    aria-label={`Remove ${item.name}`}
+                    aria-label={`Remove ${item.productName}`}
                     className="size-8 inline-flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <Trash2 className="size-4" aria-hidden />

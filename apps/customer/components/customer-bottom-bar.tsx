@@ -7,11 +7,11 @@ import { AnimatePresence, motion } from "motion/react"
 import { ChevronRight, ChevronUp, Package, ShoppingCart, X } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
 import { cn } from "@workspace/ui/lib/utils"
-import { tweens, useMotionPreset } from "@workspace/ui/lib/motion"
+import { springs, tweens, useMotionPreset } from "@workspace/ui/lib/motion"
 
 const ACTIVE: OrderStatus[] = ["PLACED", "ACCEPTED", "OUT_FOR_DELIVERY"]
 
@@ -169,15 +169,18 @@ export function CustomerBottomBar() {
         )}
       </AnimatePresence>
 
-      {/* Cart pill — Blinkit-style two-line layout with an inner Rausch
-          "View cart" button. Dark surface in light mode for high signal;
-          the inner Rausch button is the primary action affordance. */}
+      {/* Cart pill — IP-2 PR 2: tap targets split. View → /cart; ×
+          reveals a Remove affordance per Zomato's clear-cart pattern;
+          tapping anywhere else on the pill is inert (no accidental
+          nav). Drop PILL_WIDTH from the wrapper so the pill can self-
+          size and grow when Remove enters — `motion.div layout` inside
+          handles the smooth transition. */}
       <AnimatePresence>
         {showCart && (
           <motion.div
             key="cart"
             {...SLIDE} transition={slideT}
-            className={cn("pointer-events-auto", PILL_WIDTH)}
+            className="pointer-events-auto"
           >
             <CartPill
               itemCount={cartItems}
@@ -201,77 +204,153 @@ function CartPill({
   storeName: string | null
 }) {
   const bounce = useMotionPreset(tweens.fast)
+  const slide = useMotionPreset(springs.tap)
+  const cart = useCart()
+  const [removeRevealed, setRemoveRevealed] = useState(false)
+  const pillRef = useRef<HTMLDivElement>(null)
+
+  // Zomato-style two-step clear: tap × → "Remove" slides out from the
+  // right; tap Remove → cart clears. Tapping anywhere outside the pill
+  // dismisses the Remove affordance without clearing. Auto-dismisses
+  // after the cart empties (parent unmounts the pill).
+  useEffect(() => {
+    if (!removeRevealed) return
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as Node
+      if (pillRef.current && !pillRef.current.contains(target)) {
+        setRemoveRevealed(false)
+      }
+    }
+    document.addEventListener("mousedown", onDocClick)
+    return () => document.removeEventListener("mousedown", onDocClick)
+  }, [removeRevealed])
+
   return (
-    <Link
-      href="/cart"
+    // Use `motion.div` with `layout` so the pill smoothly widens when
+    // Remove enters and contracts when it exits. `inline-flex` lets the
+    // pill self-size — the outer wrapper centers it horizontally.
+    <motion.div
+      ref={pillRef}
+      layout
+      transition={slide}
       className={cn(
-        // DP-6: previous white-card outer + inner Rausch CTA pattern,
-        // squeezed into the new h-12 compact frame. Card surface flips
-        // with the theme; the Rausch lives only on the inner action chip.
-        "flex items-center gap-2 h-12 pl-3 pr-1",
+        "inline-flex items-stretch h-12",
         "rounded-full bg-card text-foreground border border-border shadow-card",
-        "hover:bg-surface-soft transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "overflow-hidden",
       )}
     >
-      {/* Cart icon with Rausch count badge — bounces on every increment
-          as the "add registered" cue. */}
-      <span className="relative inline-flex items-center justify-center shrink-0 text-foreground">
-        <ShoppingCart className="size-5" strokeWidth={2} aria-hidden />
-        <AnimatePresence>
-          {itemCount > 0 ? (
+      {/* Icon + count + price + store — no nav action. Tapping this
+          area is intentionally inert; only View navigates, only × +
+          Remove clears. Prevents accidental cart entry on the same
+          surface the customer uses to dismiss the Remove affordance. */}
+      <div className="flex items-center gap-1.5 pl-3 pr-1 select-none">
+        <span className="relative inline-flex items-center justify-center shrink-0 text-foreground">
+          <ShoppingCart className="size-5" strokeWidth={2} aria-hidden />
+          <AnimatePresence>
+            {itemCount > 0 ? (
+              <motion.span
+                key={itemCount}
+                aria-hidden
+                initial={{ scale: 0.4, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.4, opacity: 0 }}
+                transition={bounce}
+                className="absolute -top-1.5 -right-2 inline-flex min-w-[1rem] h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
+              >
+                {itemCount > 99 ? "99+" : itemCount}
+              </motion.span>
+            ) : null}
+          </AnimatePresence>
+        </span>
+        <span className="flex items-center gap-1.5 text-sm font-semibold ml-1.5 whitespace-nowrap">
+          <span className="tabular-nums">{itemCount}</span>
+          <span className="text-muted-foreground" aria-hidden>·</span>
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.span
-              key={itemCount}
-              aria-hidden
-              initial={{ scale: 0.4, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.4, opacity: 0 }}
+              key={subtotalPaise}
+              initial={{ y: -2, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 2, opacity: 0 }}
               transition={bounce}
-              className="absolute -top-1.5 -right-2 inline-flex min-w-[1rem] h-4 px-1 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground tabular-nums ring-2 ring-card"
+              className="tabular-nums inline-block"
             >
-              {itemCount > 99 ? "99+" : itemCount}
+              {formatPriceFromPaise(subtotalPaise)}
             </motion.span>
+          </AnimatePresence>
+          {storeName ? (
+            <>
+              <span className="text-muted-foreground" aria-hidden>·</span>
+              <span className="max-w-[8rem] truncate text-muted-foreground font-normal">
+                {storeName}
+              </span>
+            </>
           ) : null}
-        </AnimatePresence>
-      </span>
+        </span>
+      </div>
 
-      {/* Single-line text: count · total · store. */}
-      <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm font-semibold ml-1.5">
-        <span className="tabular-nums">{itemCount}</span>
-        <span className="text-muted-foreground" aria-hidden>·</span>
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.span
-            key={subtotalPaise}
-            initial={{ y: -2, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 2, opacity: 0 }}
-            transition={bounce}
-            className="tabular-nums inline-block"
-          >
-            {formatPriceFromPaise(subtotalPaise)}
-          </motion.span>
-        </AnimatePresence>
-        {storeName ? (
-          <>
-            <span className="text-muted-foreground" aria-hidden>·</span>
-            <span className="truncate text-muted-foreground font-normal">
-              {storeName}
-            </span>
-          </>
-        ) : null}
-      </span>
-
-      {/* Inner Rausch CTA — compact for h-12 frame. */}
-      <span
+      {/* View — the ONLY way into /cart. Tapping anywhere else on the
+          pill stays put. Closes the Remove affordance on its way out
+          so the user doesn't arrive at the cart with a dangling reveal. */}
+      <Link
+        href="/cart"
+        onClick={() => setRemoveRevealed(false)}
         className={cn(
-          "inline-flex items-center gap-0.5 h-9 px-3.5",
+          "inline-flex items-center gap-0.5 px-3.5 my-1.5 mr-1",
           "rounded-full bg-primary text-primary-foreground font-semibold text-sm",
           "shrink-0",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         )}
       >
         View
         <ChevronRight className="size-4" strokeWidth={2.5} aria-hidden />
-      </span>
-    </Link>
+      </Link>
+
+      {/* × — reveals Remove on first tap; clearing the cart is one more
+          tap on Remove. Two-step gate per Zomato's pattern keeps an
+          accidental swipe from nuking the customer's basket. */}
+      <button
+        type="button"
+        onClick={() => setRemoveRevealed((v) => !v)}
+        aria-label={removeRevealed ? "Cancel clear cart" : "Clear cart"}
+        aria-expanded={removeRevealed}
+        className={cn(
+          "inline-flex items-center justify-center size-8 my-2 mr-1.5",
+          "rounded-full bg-surface-soft text-muted-foreground",
+          "hover:bg-surface-muted hover:text-foreground transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <X className="size-3.5" strokeWidth={2.5} aria-hidden />
+      </button>
+
+      {/* Remove — slides out from the right of × when revealed. Tap
+          clears the cart immediately; AnimatePresence collapses the
+          pill back to its resting width when the cart empties. */}
+      <AnimatePresence initial={false}>
+        {removeRevealed ? (
+          <motion.button
+            key="remove"
+            type="button"
+            initial={{ width: 0, opacity: 0, paddingLeft: 0, paddingRight: 0 }}
+            animate={{ width: "auto", opacity: 1, paddingLeft: 14, paddingRight: 14 }}
+            exit={{ width: 0, opacity: 0, paddingLeft: 0, paddingRight: 0 }}
+            transition={slide}
+            onClick={() => {
+              cart.clear()
+              setRemoveRevealed(false)
+            }}
+            className={cn(
+              "inline-flex items-center justify-center my-1.5 mr-1.5",
+              "rounded-full bg-destructive/10 text-destructive font-semibold text-sm",
+              "overflow-hidden whitespace-nowrap shrink-0",
+              "hover:bg-destructive/15 transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
+            )}
+          >
+            Remove
+          </motion.button>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
   )
 }

@@ -352,7 +352,10 @@ export type UpdateCouponBody = Partial<Omit<CreateCouponBody, "code">> & {
 
 export interface PreviewCouponBody {
   code: string
-  cart: { productId: string; quantity: number }[]
+  // IP-2 — accepts the same discriminated union as PlaceOrderBody.cart.
+  // Legacy `{productId, quantity}` items resolve to the product's
+  // default variant server-side; new clients send `{variantId, ...}`.
+  cart: CartItemBody[]
 }
 
 // ---------- Admin -------------------------------------------------------

@@ -15,14 +15,20 @@
  * grids). They share the same cart API; visuals differ.
  */
 
-import type { ProductPublicView, Unit } from "@workspace/api-client"
+import type {
+  ProductPublicVariantView,
+  ProductPublicView,
+  Unit,
+} from "@workspace/api-client"
 import { UNIT_LABELS } from "@workspace/api-client"
 import { ProgressiveImage } from "@workspace/ui/components/image"
-import { Minus, Plus, ShoppingBag } from "lucide-react"
+import { ChevronDown, Minus, Plus, ShoppingBag } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
+import { useState } from "react"
 
 import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
+import { VariantPickerSheet } from "@/components/variant-picker-sheet"
 import { cn } from "@workspace/ui/lib/utils"
 import { springs, tapScale, useMotionPreset } from "@workspace/ui/lib/motion"
 
@@ -35,6 +41,19 @@ interface ProductCardCompactProps {
   className?: string
 }
 
+/**
+ * IP-2 — find the variant the card's single-variant path should ADD.
+ * Every backfilled product carries ≥1 variant (default is marked
+ * isDefault=true). Falls back to the first variant defensively in
+ * case the default flag is missing.
+ */
+function pickDefaultVariant(
+  product: ProductPublicView,
+): ProductPublicVariantView | null {
+  if (product.variants.length === 0) return null
+  return product.variants.find((v) => v.isDefault) ?? product.variants[0] ?? null
+}
+
 export function ProductCardCompact({
   product,
   storeId,
@@ -42,22 +61,49 @@ export function ProductCardCompact({
   className,
 }: ProductCardCompactProps) {
   const cart = useCart()
-  const inCart = cart.itemCount(product.id)
+  const [variantSheetOpen, setVariantSheetOpen] = useState(false)
 
-  const hasDiscount = product.effectivePricePaise < product.pricePaise
-  // The ribbon stacks two lines: a big amount on top and "OFF" beneath.
-  // Splitting here so the visual chrome stays a pure render concern.
+  // IP-2 — multi-variant trigger. >1 variant → "Add ▾" opens the picker.
+  const hasMultipleVariants = product.variants.length > 1
+  const defaultVariant = pickDefaultVariant(product)
+
+  // Cart count: for single-variant cards, the stepper binds to that
+  // exact variant. For multi-variant cards we surface the AGGREGATE
+  // across all variants of this product so the "N · Add more" badge
+  // is honest about everything the customer already picked from this row.
+  const inCart = hasMultipleVariants
+    ? cart.productCount(product.id)
+    : defaultVariant !== null
+      ? cart.variantCount(defaultVariant.id)
+      : 0
+
+  // Price displayed on the card. For multi-variant we show the cheapest
+  // in-stock variant's effective price ("from ₹X"). Single-variant uses
+  // the default variant's effective price directly.
+  const availableVariants = product.variants.filter((v) => v.isAvailable)
+  const cheapestEffective =
+    hasMultipleVariants && availableVariants.length > 0
+      ? Math.min(...availableVariants.map((v) => v.effectivePricePaise))
+      : (defaultVariant?.effectivePricePaise ?? product.effectivePricePaise)
+  const cheapestList =
+    hasMultipleVariants && availableVariants.length > 0
+      ? availableVariants.find((v) => v.effectivePricePaise === cheapestEffective)?.pricePaise ??
+        product.pricePaise
+      : (defaultVariant?.pricePaise ?? product.pricePaise)
+
+  const hasDiscount = cheapestEffective < cheapestList
   const discountTopLine = !hasDiscount
     ? null
     : product.discountType === "PERCENT" && product.discountValue !== null
       ? `${product.discountValue}%`
-      : formatPriceFromPaise(product.pricePaise - product.effectivePricePaise)
+      : formatPriceFromPaise(cheapestList - cheapestEffective)
   const discountAriaLabel = discountTopLine ? `${discountTopLine} off` : null
 
   const tap = useMotionPreset(springs.tap)
   const oos = !product.isAvailable
 
   return (
+    <>
     <motion.div
       whileHover={{ y: -2 }}
       transition={tap}
@@ -117,33 +163,41 @@ export function ProductCardCompact({
       </div>
 
       {/* Name + unit + price stack — DP-7: tighter typography for
-          denser grocery scanability. Name + price stay legible; the
-          delta is shaved off the gaps. */}
+          denser grocery scanability. IP-2: multi-variant cards show
+          "X sizes" + "from ₹X" so the affordance is visible BEFORE
+          the customer taps. */}
       <div className="pt-1.5 px-0.5">
         <p className="text-[12px] font-medium leading-[1.15] line-clamp-2 text-foreground">
           {product.name}
         </p>
         <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-          {unitLabel(product.unit)}
+          {hasMultipleVariants
+            ? `${product.variants.length} sizes`
+            : unitLabel(product.unit)}
         </p>
         <div className="mt-0.5 flex items-baseline gap-1">
+          {hasMultipleVariants ? (
+            <span className="text-[9px] text-muted-foreground tracking-wide font-medium uppercase">
+              from
+            </span>
+          ) : null}
           <span className="tabular-nums text-[13px] font-bold text-foreground">
-            {formatPriceFromPaise(product.effectivePricePaise)}
+            {formatPriceFromPaise(cheapestEffective)}
           </span>
           {hasDiscount ? (
             <span className="tabular-nums text-[10px] text-muted-foreground line-through">
-              {formatPriceFromPaise(product.pricePaise)}
+              {formatPriceFromPaise(cheapestList)}
             </span>
           ) : null}
         </div>
       </div>
 
       {/* ADD / stepper — DP-7 tone-down: ADD is the resting state, the
-          STEPPER is the engaged state. Blinkit's actual cards: ADD is a
-          subtle outlined chip; only after engaging does it switch to a
-          loud filled stepper. Mirrors that.
-          Both states share the same h-7 (28px) tap target so the layout
-          doesn't reflow when the morph happens. */}
+          STEPPER is the engaged state. IP-2: multi-variant products
+          skip the single-tap ADD entirely and surface "Add ▾" which
+          opens the variant picker sheet. A stepper inside a card
+          doesn't make sense when there are multiple sizes — which
+          one would +/- target? */}
       <div className="mt-auto pt-1.5 px-0.5">
         {oos ? (
           <button
@@ -152,6 +206,45 @@ export function ProductCardCompact({
             className="w-full inline-flex items-center justify-center h-7 rounded-full text-[10px] font-semibold text-muted-foreground border border-border bg-surface-soft"
           >
             Notify me
+          </button>
+        ) : hasMultipleVariants ? (
+          <motion.button
+            key="options"
+            type="button"
+            onClick={() => setVariantSheetOpen(true)}
+            whileTap={{ scale: tapScale }}
+            transition={tap}
+            aria-label={`Choose a size for ${product.name}`}
+            aria-haspopup="dialog"
+            className={cn(
+              "w-full inline-flex items-center justify-center gap-1 h-7 rounded-full",
+              "bg-card border border-primary text-primary",
+              "font-bold text-[11px] tracking-wide",
+              "hover:bg-primary/5 transition-colors",
+            )}
+            data-state="options"
+          >
+            {inCart > 0 ? (
+              <>
+                <span className="tabular-nums">{inCart}</span>
+                <span aria-hidden className="opacity-50">·</span>
+                Add more
+              </>
+            ) : (
+              "Add"
+            )}
+            <ChevronDown className="size-3" strokeWidth={2.5} aria-hidden />
+          </motion.button>
+        ) : defaultVariant === null ? (
+          // Defensive: a product with no variants shouldn't render an
+          // actionable card. The server invariant says ≥1 variant per
+          // product, so this is the legacy-snapshot reorder shim path.
+          <button
+            type="button"
+            disabled
+            className="w-full inline-flex items-center justify-center h-7 rounded-full text-[10px] font-semibold text-muted-foreground border border-border bg-surface-soft"
+          >
+            Unavailable
           </button>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
@@ -163,11 +256,6 @@ export function ProductCardCompact({
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={tap}
                 className={cn(
-                  // Engaged state stays in the SAME visual family as the
-                  // resting ADD chip — outlined, white surface, primary
-                  // border / icons / count. The count pulse on increment
-                  // (below) is the "you just added one" feedback; we
-                  // don't need a loud filled fill for that.
                   "flex items-center justify-between h-7 rounded-full overflow-hidden w-full",
                   "bg-card border border-primary text-primary",
                 )}
@@ -175,7 +263,7 @@ export function ProductCardCompact({
               >
                 <motion.button
                   type="button"
-                  onClick={() => cart.dec(product.id)}
+                  onClick={() => cart.dec(defaultVariant.id)}
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Remove one ${product.name}`}
@@ -185,8 +273,6 @@ export function ProductCardCompact({
                 </motion.button>
                 <motion.span
                   key={inCart}
-                  // DP-6: tactile scale pulse on every increment — feels
-                  // like a click instead of a soft slide-fade.
                   initial={{ scale: 1.18, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.9, opacity: 0 }}
@@ -197,7 +283,7 @@ export function ProductCardCompact({
                 </motion.span>
                 <motion.button
                   type="button"
-                  onClick={() => cart.inc(product, storeId, storeName)}
+                  onClick={() => cart.inc(product, defaultVariant, storeId, storeName)}
                   whileTap={{ scale: tapScale }}
                   transition={tap}
                   aria-label={`Add one more ${product.name}`}
@@ -210,7 +296,7 @@ export function ProductCardCompact({
               <motion.button
                 key="add"
                 type="button"
-                onClick={() => cart.inc(product, storeId, storeName)}
+                onClick={() => cart.inc(product, defaultVariant, storeId, storeName)}
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.96 }}
@@ -218,11 +304,6 @@ export function ProductCardCompact({
                 transition={tap}
                 aria-label={`Add ${product.name} to cart`}
                 className={cn(
-                  // Resting-state ADD — outlined chip, white surface,
-                  // primary border + label. Filled was reading as a
-                  // billboard at full-width; this is Blinkit's actual
-                  // pattern: a clear affordance that doesn't out-shout
-                  // the product image / price above it.
                   "w-full inline-flex items-center justify-center h-7 rounded-full",
                   "bg-card border border-primary text-primary",
                   "font-bold text-[11px] tracking-wide",
@@ -237,6 +318,16 @@ export function ProductCardCompact({
         )}
       </div>
     </motion.div>
+    {hasMultipleVariants ? (
+      <VariantPickerSheet
+        open={variantSheetOpen}
+        onOpenChange={setVariantSheetOpen}
+        product={product}
+        storeId={storeId}
+        storeName={storeName}
+      />
+    ) : null}
+    </>
   )
 }
 

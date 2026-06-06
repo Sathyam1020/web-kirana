@@ -5,7 +5,6 @@ import type {
   CreateProductBody,
   ProductOwnerView,
   SubcategoryOwnerView,
-  Unit,
   UpdateProductBody,
 } from "@workspace/api-client"
 import { uploadToCloudinary } from "@workspace/api-client"
@@ -33,9 +32,15 @@ import { Loader2, Plus, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { toast } from "sonner"
-import { describeApiError, rupeesToPaise, paiseToRupees } from "@/lib/format"
 
-const UNITS: Unit[] = ["KG", "G", "L", "ML", "PIECE", "PACK", "DOZEN"]
+import { describeApiError, rupeesToPaise, paiseToRupees } from "@/lib/format"
+import {
+  VariantEditor,
+  emptyVariantRow,
+  rowsFromVariants,
+  rowsToVariants,
+  type VariantRow,
+} from "@/components/variant-editor"
 
 /**
  * Phase 6.6 — only the Subcategory (L3) is picked; its parent Category
@@ -50,8 +55,6 @@ interface FormState {
   name: string
   subcategoryId: string
   description: string
-  priceRupees: string
-  unit: Unit
   imageUrl: string
   imagePublicId: string | null
   isAvailable: boolean
@@ -60,6 +63,10 @@ interface FormState {
   discountType: DiscountChoice
   discountValueInput: string
   discountValidUntil: string // "" or a YYYY-MM-DD date-input value
+  /** IP-2 — each variant carries its own price + unit + qty. The legacy
+   *  Product.pricePaise / Product.unit fields are populated server-side
+   *  from the default variant during the IP-2.0 transition. */
+  variants: VariantRow[]
 }
 
 function emptyForm(): FormState {
@@ -67,8 +74,6 @@ function emptyForm(): FormState {
     name: "",
     subcategoryId: "",
     description: "",
-    priceRupees: "",
-    unit: "PIECE",
     imageUrl: "",
     imagePublicId: null,
     isAvailable: true,
@@ -77,6 +82,7 @@ function emptyForm(): FormState {
     discountType: "",
     discountValueInput: "",
     discountValidUntil: "",
+    variants: [emptyVariantRow()],
   }
 }
 
@@ -85,8 +91,6 @@ function fromProduct(p: ProductOwnerView): FormState {
     name: p.name,
     subcategoryId: p.subcategoryId,
     description: p.description ?? "",
-    priceRupees: paiseToRupees(p.pricePaise),
-    unit: p.unit,
     imageUrl: p.imageUrl ?? "",
     imagePublicId: p.imagePublicId ?? null,
     isAvailable: p.isAvailable,
@@ -100,6 +104,9 @@ function fromProduct(p: ProductOwnerView): FormState {
           ? paiseToRupees(p.discountValue)
           : String(p.discountValue),
     discountValidUntil: p.discountValidUntil ? p.discountValidUntil.slice(0, 10) : "",
+    // IP-2 — existing variants drive the editor. Server invariant says
+    // ≥1, so this list is always non-empty for a real ProductOwnerView.
+    variants: rowsFromVariants(p.variants),
   }
 }
 
@@ -176,10 +183,20 @@ export function ProductForm({ product, onSaved }: Props) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const pricePaise = rupeesToPaise(form.priceRupees)
-      if (pricePaise < 100) {
-        throw new Error("Price must be at least ₹1.00")
+      // IP-2 — variants drive price + unit + qty. The legacy
+      // pricePaise/unit fields stay on the body for backwards compat
+      // (server uses them only when `variants` is absent) — populate
+      // from the default variant so a caller that doesn't migrate
+      // still sees consistent numbers in legacy reads.
+      if (form.variants.length === 0) {
+        throw new Error("Add at least one size")
       }
+      const variantInputs = rowsToVariants(form.variants) // throws on bad input
+      const defaultVariant =
+        variantInputs.find((v) => v.isDefault) ?? variantInputs[0]!
+      const fallbackPricePaise = defaultVariant.pricePaise
+      const fallbackUnit = defaultVariant.unit
+
       if (!product && form.subcategoryId === "") {
         throw new Error("Pick a subcategory first")
       }
@@ -198,8 +215,8 @@ export function ProductForm({ product, onSaved }: Props) {
         } else {
           discountValue = rupeesToPaise(form.discountValueInput)
           if (discountValue < 100) throw new Error("Flat discount must be at least ₹1")
-          if (discountValue >= pricePaise) {
-            throw new Error("Flat discount must be less than the price")
+          if (discountValue >= fallbackPricePaise) {
+            throw new Error("Flat discount must be less than the default variant's price")
           }
         }
       }
@@ -210,8 +227,8 @@ export function ProductForm({ product, onSaved }: Props) {
       const base = {
         name: form.name.trim(),
         description: form.description.trim(),
-        pricePaise,
-        unit: form.unit,
+        pricePaise: fallbackPricePaise,
+        unit: fallbackUnit,
         imageUrl: form.imageUrl.trim(),
         searchAliases: form.searchAliases,
       }
@@ -223,8 +240,6 @@ export function ProductForm({ product, onSaved }: Props) {
         const patch: UpdateProductBody = {
           name: base.name,
           description: base.description === "" ? null : base.description,
-          pricePaise: base.pricePaise,
-          unit: base.unit,
           imageUrl: base.imageUrl === "" ? null : base.imageUrl,
           imagePublicId: base.imageUrl === "" ? null : form.imagePublicId,
           isAvailable: form.isAvailable,
@@ -234,6 +249,8 @@ export function ProductForm({ product, onSaved }: Props) {
           discountValue: form.discountType === "" ? null : discountValue,
           discountValidUntil:
             form.discountType === "" ? null : (discountValidUntilISO ?? null),
+          // IP-2 — full variant set; server diff-replaces.
+          variants: variantInputs,
         }
         return api.products.update(product.id, patch)
       }
@@ -244,6 +261,7 @@ export function ProductForm({ product, onSaved }: Props) {
         imageUrl: base.imageUrl === "" ? undefined : base.imageUrl,
         imagePublicId: form.imagePublicId ?? undefined,
         isAvailable: form.isAvailable,
+        variants: variantInputs,
         ...(form.discountType !== ""
           ? {
               discountType: form.discountType,
@@ -376,33 +394,15 @@ export function ProductForm({ product, onSaved }: Props) {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field
-            id="price"
-            label="Price (₹)"
-            value={form.priceRupees}
-            onChange={(v) => set("priceRupees", v)}
-            type="number"
-            inputMode="decimal"
-            className="tabular-nums"
-            required
-          />
-          <div>
-            <Label className="mb-2 block">Unit</Label>
-            <Select value={form.unit} onValueChange={(v) => set("unit", v as Unit)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {UNITS.map((u) => (
-                  <SelectItem key={u} value={u}>
-                    {u}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        {/* IP-2 — variant editor replaces the single Price + Unit row.
+            Each size carries its own qty, unit, price, optional image,
+            and availability. The "Default" radio decides which size
+            the customer card lands on by default + which one mirrors
+            into the deprecated Product.pricePaise/unit fields. */}
+        <VariantEditor
+          rows={form.variants}
+          onChange={(next) => set("variants", next)}
+        />
 
         <Field
           id="description"

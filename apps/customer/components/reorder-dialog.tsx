@@ -14,7 +14,12 @@
  * single-store guarantee stays the source of truth.
  */
 
-import type { OrderItemView, ProductPublicView, Unit } from "@workspace/api-client"
+import type {
+  OrderItemView,
+  ProductPublicVariantView,
+  ProductPublicView,
+  Unit,
+} from "@workspace/api-client"
 import {
   BottomSheet,
   BottomSheetContent,
@@ -28,16 +33,31 @@ import { useCart } from "@/lib/cart"
 import { formatPriceFromPaise } from "@/lib/format"
 import { cn } from "@workspace/ui/lib/utils"
 
-type ReorderableItem = OrderItemView & { productId: string }
+// IP-2: reorder requires both a productId AND a variantId on the
+// snapshot. Pre-IP-2 orders carry variantId=null and are filtered out
+// alongside soft-deleted products.
+type ReorderableItem = OrderItemView & { productId: string; variantId: string }
 function isReorderable(i: OrderItemView): i is ReorderableItem {
-  return i.productId !== null
+  return i.productId !== null && i.variantId !== null
 }
 
 function itemToProduct(
   item: ReorderableItem,
   storeId: string,
-): ProductPublicView {
-  return {
+): { product: ProductPublicView; variant: ProductPublicVariantView } {
+  const variant: ProductPublicVariantView = {
+    id: item.variantId,
+    name: item.variantName ?? "Default",
+    unitValue: item.variantUnitValue ?? "1",
+    unit: item.unitSnapshot as Unit,
+    pricePaise: item.unitPricePaiseSnapshot,
+    effectivePricePaise: item.unitPricePaiseSnapshot,
+    isAvailable: true,
+    isDefault: true,
+    sortOrder: 0,
+    imageUrl: item.imageUrlSnapshot,
+  }
+  const product: ProductPublicView = {
     id: item.productId,
     storeId,
     subcategoryId: "",
@@ -58,10 +78,9 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
-    // IP-2: reorder dialog shim — the original variant is recovered via
-    // OrderItem.variantId at cart-add time. No alternate chips here.
-    variants: [],
+    variants: [variant],
   }
+  return { product, variant }
 }
 
 interface ReorderDialogProps {
@@ -110,9 +129,9 @@ export function ReorderDialog({
     // the pendingSwitch dialog.
     if (cartDifferentStore) cart.clear()
     for (const item of reorderable) {
-      const product = itemToProduct(item, storeId)
+      const { product, variant } = itemToProduct(item, storeId)
       for (let q = 0; q < item.quantity; q++) {
-        cart.inc(product, storeId, storeName)
+        cart.inc(product, variant, storeId, storeName)
       }
     }
     onOpenChange(false)

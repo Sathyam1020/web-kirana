@@ -181,9 +181,30 @@ export default function SearchPage() {
                     <h3 className="font-medium text-sm truncate">{hit.name}</h3>
                     <p className="text-xs text-muted-foreground truncate">
                       {hit.storeName} · {hit.categoryName}
+                      {/* IP-2 — multi-variant indicator. Same affordance
+                          the home rail cards use; here it just nudges
+                          the customer to expect chips on the store page. */}
+                      {hit.variants.length > 1 ? (
+                        <> · {hit.variants.length} sizes</>
+                      ) : null}
                     </p>
                     <p className="tabular-nums text-sm font-semibold mt-1">
-                      {formatPriceFromPaise(hit.pricePaise)}
+                      {hit.variants.length > 1 ? (
+                        <>
+                          <span className="text-[10px] text-muted-foreground tracking-wide font-medium uppercase mr-1">
+                            from
+                          </span>
+                          {formatPriceFromPaise(
+                            Math.min(
+                              ...hit.variants
+                                .filter((v) => v.isAvailable)
+                                .map((v) => v.effectivePricePaise),
+                            ),
+                          )}
+                        </>
+                      ) : (
+                        formatPriceFromPaise(hit.pricePaise)
+                      )}
                     </p>
                   </div>
                 </Link>

@@ -487,6 +487,12 @@ export interface SearchHit {
   imageUrl: string | null
   isAvailable: boolean
   isActive: boolean
+  // IP-2 — carry the variant set so search-result product cards
+  // exercise the same multi-variant trigger as the home rails (chips
+  // / picker sheet). Empty array means the product was created before
+  // the variant model; the customer card falls through to the legacy
+  // single-add path.
+  variants: ProductPublicVariantView[]
   score: number
 }
 

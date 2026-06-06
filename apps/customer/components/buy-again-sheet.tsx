@@ -18,6 +18,7 @@
 import type {
   OrderItemView,
   OrderView,
+  ProductPublicVariantView,
   ProductPublicView,
   Unit,
 } from "@workspace/api-client"
@@ -49,21 +50,38 @@ interface BuyAgainSheetProps {
   storeName: string
 }
 
-type ReorderableItem = OrderItemView & { productId: string }
+/** IP-2: reorderable items need both a productId AND a variantId on
+ *  the order snapshot. Pre-IP-2 orders carry variantId=null and can't
+ *  be reordered through the new variant-keyed cart — they're filtered
+ *  out alongside soft-deleted products. */
+type ReorderableItem = OrderItemView & { productId: string; variantId: string }
 function isReorderable(i: OrderItemView): i is ReorderableItem {
-  return i.productId !== null
+  return i.productId !== null && i.variantId !== null
 }
 
 /**
- * Reconstruct a minimal ProductPublicView from an order item snapshot so
- * the cart-add flow doesn't need a second products fetch. Cart cares
- * about: id, name, image, unit, pricePaise, effectivePricePaise.
+ * Reconstruct a minimal ProductPublicView from an order item snapshot.
+ * Carries a single-element variants array with the snapshot the
+ * customer ordered, so the reorder cart-add path stays variant-aware
+ * without re-fetching the product.
  */
 function itemToProduct(
   item: ReorderableItem,
   storeId: string,
-): ProductPublicView {
-  return {
+): { product: ProductPublicView; variant: ProductPublicVariantView } {
+  const variant: ProductPublicVariantView = {
+    id: item.variantId,
+    name: item.variantName ?? "Default",
+    unitValue: item.variantUnitValue ?? "1",
+    unit: item.unitSnapshot,
+    pricePaise: item.unitPricePaiseSnapshot,
+    effectivePricePaise: item.unitPricePaiseSnapshot,
+    isAvailable: true,
+    isDefault: true,
+    sortOrder: 0,
+    imageUrl: item.imageUrlSnapshot,
+  }
+  const product: ProductPublicView = {
     id: item.productId,
     storeId,
     subcategoryId: "",
@@ -84,11 +102,9 @@ function itemToProduct(
     isAvailable: true,
     isFeatured: false,
     featuredOrder: null,
-    // IP-2: reorder uses the variantId stored on the order item to add
-    // that exact variant back to cart — no need to surface alternate
-    // chips here. Leave variants empty.
-    variants: [],
+    variants: [variant],
   }
+  return { product, variant }
 }
 
 export function BuyAgainSheet({
@@ -115,9 +131,9 @@ export function BuyAgainSheet({
     let addedItems = 0
     let addedUnits = 0
     for (const item of reorderable) {
-      const product = itemToProduct(item, storeId)
+      const { product, variant } = itemToProduct(item, storeId)
       for (let q = 0; q < item.quantity; q++) {
-        cart.inc(product, storeId, storeName)
+        cart.inc(product, variant, storeId, storeName)
       }
       addedItems += 1
       addedUnits += item.quantity
@@ -233,8 +249,11 @@ function ItemRow({
   storeName: string
 }) {
   const cart = useCart()
-  const product = itemToProduct(item, storeId)
-  const inCart = cart.itemCount(item.productId)
+  const { product, variant } = itemToProduct(item, storeId)
+  // IP-2: count this specific variant in the cart, not the aggregate
+  // across all variants of the product — the reorder row binds to the
+  // exact size the customer originally bought.
+  const inCart = cart.variantCount(variant.id)
   const tap = useMotionPreset(springs.tap)
 
   return (
@@ -273,7 +292,7 @@ function ItemRow({
           >
             <motion.button
               type="button"
-              onClick={() => cart.dec(item.productId)}
+              onClick={() => cart.dec(variant.id)}
               whileTap={{ scale: tapScale }}
               aria-label={`Remove one ${item.nameSnapshot}`}
               className="size-8 inline-flex items-center justify-center"
@@ -292,7 +311,7 @@ function ItemRow({
             </motion.span>
             <motion.button
               type="button"
-              onClick={() => cart.inc(product, storeId, storeName)}
+              onClick={() => cart.inc(product, variant, storeId, storeName)}
               whileTap={{ scale: tapScale }}
               aria-label={`Add one more ${item.nameSnapshot}`}
               className="size-8 inline-flex items-center justify-center"
@@ -304,7 +323,7 @@ function ItemRow({
           <motion.button
             key="add"
             type="button"
-            onClick={() => cart.inc(product, storeId, storeName)}
+            onClick={() => cart.inc(product, variant, storeId, storeName)}
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.92 }}
