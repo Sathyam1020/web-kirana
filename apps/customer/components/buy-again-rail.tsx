@@ -89,15 +89,15 @@ export function BuyAgainRail({
             whileTap={{ scale: tapScale }}
             transition={tap}
             className={cn(
-              "inline-flex items-center gap-1 h-7 px-2.5 rounded-full shrink-0",
-              "border border-primary text-primary text-[11px] font-bold uppercase tracking-wide",
+              "inline-flex items-center gap-1.5 h-7 px-3 rounded-full shrink-0",
+              "border border-primary text-primary text-[11px] font-semibold tracking-wide",
               "bg-card hover:bg-primary/5 transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
-            aria-label="Open your previous order"
+            aria-label="Reorder your previous order"
           >
             <RefreshCw className="size-3" strokeWidth={2.5} aria-hidden />
-            Reorder
+            Reorder previous order
           </motion.button>
         ) : null}
       </div>
