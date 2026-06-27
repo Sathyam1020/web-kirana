@@ -16,6 +16,10 @@ dockerfilePath = "./Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 120
+# 300s covers the worst case: Neon deep-suspended (~30s wake) +
+# deploy-start.sh full retry budget (~155s) + server boot + a buffer.
+# Healthchecks at boot time aren't the same as steady-state latency
+# checks — be generous so we don't restart-loop a slow first deploy.
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

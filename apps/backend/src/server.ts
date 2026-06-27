@@ -20,7 +20,11 @@ server.on("connection", (socket) => {
   socket.once("close", () => sockets.delete(socket))
 })
 
-server.listen(env.PORT, () => {
+// Bind to 0.0.0.0 explicitly — Railway's container mesh requires it.
+// Default `listen(port)` can dual-stack to IPv6-only on some Linux
+// configurations, which makes the service unreachable from Railway's
+// proxy without surfacing any error.
+server.listen(env.PORT, "0.0.0.0", () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, "backend listening")
 })
 
