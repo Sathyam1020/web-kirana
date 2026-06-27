@@ -1,4 +1,5 @@
 import { toNodeHandler } from "better-auth/node"
+import compression from "compression"
 import express, { type Express, type Request, type Response, Router } from "express"
 import helmet from "helmet"
 import { prisma } from "./db/prisma.js"
@@ -30,6 +31,9 @@ export function buildApp(): Express {
   app.set("trust proxy", 1)
 
   app.use(helmet())
+  // gzip JSON responses. Bandwidth savings on order/list/search payloads
+  // are meaningful for mobile customers; CPU cost is marginal at MVP scale.
+  app.use(compression())
   app.use(corsMiddleware)
 
   app.use(httpLogger)
