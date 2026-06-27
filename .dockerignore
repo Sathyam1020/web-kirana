@@ -1,13 +1,67 @@
-node_modules
-**/node_modules
+# Docker build context filter for the backend image.
+#
+# The Dockerfile uses explicit COPY paths (no `COPY . .`), so anything
+# excluded here just speeds up the build by reducing the build context
+# the Docker daemon receives. Aggressive — keep only what the backend
+# build actually needs.
+
+# Version control + CI
 .git
 .github
-**/.next
+.gitignore
+.gitattributes
+
+# All node_modules — Docker stages reinstall cleanly
+**/node_modules
+
+# Build outputs of every workspace
 **/dist
+**/.next
 **/.turbo
-.turbo
+**/build
+**/coverage
+**/.cache
+
+# Frontend apps + UI/auth packages aren't needed in the backend image.
+# (npm `--workspace=@workspace/backend` install also skips their deps,
+# but excluding the source here drops ~1GB+ of build context.)
+apps/customer
+apps/owner
+apps/admin
+packages/ui
+packages/auth
+packages/api-client
+
+# Backend-internal artifacts that should be regenerated, not copied
+apps/backend/dist
+apps/backend/src/generated
+apps/backend/coverage
+
+# Tests + scripts not needed in the production image. We keep
+# deploy-start.sh (boot entrypoint) and the prisma seed.
+apps/backend/tests
+apps/backend/vitest.config.ts
+apps/backend/scripts/db-inspect.ts
+apps/backend/scripts/postgis-smoke.ts
+apps/backend/scripts/seed-variants-demo.ts
+
+# Local env files — Railway injects real env at runtime
 **/.env
 **/.env.local
 **/.env.*.local
-apps/backend/src/generated
-*.log
+**/.env.development
+**/.env.test
+
+# Editor + OS noise
+**/.DS_Store
+**/.vscode
+**/.idea
+**/*.log
+
+# Docs that don't belong in a runtime image
+ARCHITECTURE.md
+DEPLOY.md
+FRONTEND.md
+IMPROVEMENTS.md
+design.md
+docs

@@ -1,0 +1,21 @@
+# Railway deployment configuration.
+#
+# Builder: Dockerfile (at repo root). Railway must be configured with
+# Root Directory = "" (repo root), NOT apps/backend — the Dockerfile
+# needs the monorepo as build context to install workspace siblings.
+#
+# Healthcheck: Railway will poll /health every few seconds during deploy
+# and restart-after-crash phases. Once /health responds 200, the deploy
+# is promoted to active. The 120s timeout gives Neon enough time to wake
+# from auto-suspend on first cold start (the deploy-start.sh script
+# retries the migration with backoff inside the same window).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "./Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
